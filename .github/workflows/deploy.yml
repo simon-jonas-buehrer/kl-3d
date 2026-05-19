@@ -1,0 +1,84 @@
+name: Render & deploy slides
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; do not cancel in-progress runs so
+# already-deployed slides stay live until a new one finishes.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ffmpeg \
+            libcairo2-dev \
+            libpango1.0-dev \
+            pkg-config \
+            texlive \
+            texlive-latex-extra \
+            texlive-fonts-extra \
+            texlive-latex-recommended \
+            texlive-science \
+            tipa
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # manim-slides[pyside6-full] pulls Qt which we do not need on CI.
+          pip install "manim>=0.18.0" "manim-slides>=5.1.0" "numpy>=1.26"
+
+      - name: Render Manim scene
+        run: |
+          manim-slides render -ql kl_3d.py KLDivergence3D
+
+      - name: Convert slides to HTML
+        run: |
+          mkdir -p _site
+          manim-slides convert KLDivergence3D _site/index.html
+
+      - name: Copy slide assets (videos)
+        run: |
+          # manim-slides convert references the rendered videos by relative
+          # path; copy the slides/ directory and any companion asset folder.
+          [ -d slides ] && cp -r slides _site/slides || true
+          [ -d index_assets ] && cp -r index_assets _site/index_assets || true
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

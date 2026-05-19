@@ -1,0 +1,25 @@
+# Manim build artifacts
+media/
+slides/
+__pycache__/
+*.pyc
+
+# Manim-slides intermediate output
+*.json
+!.github/**/*.json
+
+# HTML conversion output (built in CI, not tracked)
+_site/
+index.html
+index_assets/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Python venv
+.venv/
+venv/
+env/
