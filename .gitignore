@@ -19,7 +19,8 @@ index_assets/
 .DS_Store
 *.swp
 
-# Python venv
+# Python venv / uv
 .venv/
 venv/
 env/
+.python-version

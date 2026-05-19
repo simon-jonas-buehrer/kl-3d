@@ -1,0 +1,21 @@
+[project]
+name = "kl-3d"
+version = "0.1.0"
+description = "3D KL divergence visualization as Manim Slides."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Simon Buehrer", email = "simon.buehrer26@gmail.com" }]
+dependencies = [
+    "manim>=0.18.0",
+    "manim-slides>=5.1.0",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# Interactive presenter window (PySide6 + Qt). Not needed in CI.
+gui = ["manim-slides[pyside6-full]>=5.1.0"]
+
+[tool.uv]
+# Reproducible resolution for CI.
+package = false

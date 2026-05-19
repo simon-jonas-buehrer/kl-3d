@@ -1,3 +1,0 @@
-manim>=0.18.0
-manim-slides[pyside6-full]>=5.1.0
-numpy>=1.26
