@@ -39,13 +39,20 @@ served at:
 ## Local rendering
 
 This project uses [`pixi`](https://pixi.sh) for environment management. Pixi
-pulls **both** the conda-forge system libraries (`pango`, `cairo`,
-`pkg-config`, `ffmpeg`, `texlive-core`) and the PyPI Python packages
-(`manim`, `manim-slides`, `numpy`) into a single user-local env defined by
-[`pyproject.toml`](pyproject.toml) and locked in `pixi.lock`. That avoids
-the usual "I don't have sudo to apt-install Pango" pain — important here
-because `manimpango` ships no Linux wheels on PyPI and must be compiled
-from source.
+pulls `manim` (and its prebuilt `manimpango` + Pango/Cairo/ffmpeg stack) from
+**conda-forge**, plus `manim-slides` from PyPI, into a single user-local env
+defined by [`pyproject.toml`](pyproject.toml) and locked in `pixi.lock`. Using
+the conda-forge `manim` avoids the source-build chase that the PyPI `manim`
+triggers on Linux (no `manimpango` wheels → must compile against
+Pango/Cairo/HarfBuzz/Expat/…).
+
+LaTeX is the one exception: conda-forge's `texlive-core` is a 10 MiB stub
+that's missing the Perl helpers `mktexfmt` needs at first run. The
+[official manim recommendation](https://docs.manim.community/en/stable/installation/linux.html)
+is to use a system TeX Live, so this env expects `latex` and `dvisvgm` to
+be discoverable on `PATH`. On the ITET cluster that's `/usr/sepp/bin/`;
+on a fresh Debian/Ubuntu host install
+`texlive-latex-extra texlive-fonts-recommended texlive-science cm-super dvisvgm`.
 
 Install pixi ([instructions](https://pixi.sh/latest/#installation)), then:
 
@@ -91,9 +98,10 @@ push to `main`:
    quality and converts the result into `_site/index.html` (Reveal.js);
 3. publishes `_site/` to GitHub Pages.
 
-No apt steps, no manual TeX Live install — `texlive-core`, ffmpeg, Pango,
-Cairo and `pkg-config` all come from the conda-forge env defined in
-`pyproject.toml`.
+Everything except LaTeX comes from the conda-forge env defined in
+`pyproject.toml` (the `manim` package bundles Pango/Cairo/manimpango/ffmpeg).
+LaTeX (`texlive-latex-extra`, `cm-super`, `dvisvgm`) is apt-installed in the
+CI workflow because conda-forge's `texlive-core` is an incomplete stub.
 
 To enable hosting on a fresh fork:
 
@@ -101,8 +109,8 @@ To enable hosting on a fresh fork:
 2. On GitHub, go to **Settings → Pages → Build and deployment → Source** and
    pick **GitHub Actions**.
 3. Push to `main` (or run the workflow manually from the Actions tab). The
-   first run takes ~6–10 min (texlive-core is ~1 GB); subsequent runs hit
-   the pixi cache and finish in a few minutes.
+   first run takes ~5–8 min (apt-installing LaTeX + warming the pixi cache);
+   subsequent runs hit the apt and pixi caches and finish in a few minutes.
 4. The site URL appears in the **Actions → deploy → deploy** job summary and
    under **Settings → Pages** once the run completes.
 

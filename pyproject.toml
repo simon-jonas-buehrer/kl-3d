@@ -6,9 +6,9 @@ readme = "README.md"
 requires-python = ">=3.11,<3.13"
 license = { file = "LICENSE" }
 authors = [{ name = "Simon Buehrer", email = "simon.buehrer26@gmail.com" }]
-# All runtime deps are declared under [tool.pixi.*] below; pixi manages both
-# the conda-forge system libraries (pango/cairo/ffmpeg/texlive) and the PyPI
-# Python packages in one lockfile.
+# All runtime deps are declared under [tool.pixi.*] below. We pull `manim`
+# from conda-forge so manimpango arrives prebuilt with pango/cairo/ffmpeg
+# bundled — no native-lib chase to compile manimpango from a PyPI sdist.
 
 # ---------------------------------------------------------------------------
 # Pixi configuration
@@ -16,35 +16,25 @@ authors = [{ name = "Simon Buehrer", email = "simon.buehrer26@gmail.com" }]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-# texlive-core on osx-arm64 pins python to 3.10, which conflicts with the
-# >=3.11 requirement below. Keep this list to platforms we actually use.
 platforms = ["linux-64"]
 
 [tool.pixi.dependencies]
 python = ">=3.11,<3.13"
-# Native libs that manimpango compiles against (no Linux wheels on PyPI).
-pango = "*"
-cairo = "*"
-pkg-config = "*"
-# pango pulls in glib whose gio-2.0.pc requires zlib via pkg-config; the
-# build of manimpango fails without an explicit zlib package providing
-# zlib.pc. Pinning these transitive build deps avoids surprises.
-zlib = "*"
-glib = "*"
-harfbuzz = "*"
-# Manim video output.
-ffmpeg = "*"
-# LaTeX for Tex/MathTex mobjects. Heavy (~1 GB) but the simplest path.
-texlive-core = "*"
+manim = ">=0.19.1,<0.21"
+numpy = ">=1.26"
+# NOTE: LaTeX is intentionally NOT a conda dep. conda-forge's `texlive-core`
+# is a 10 MiB stub (missing the TeXLive::* perl modules, no format files, no
+# packages); manim's MathTex calls fail with mktexfmt errors. The official
+# manim recommendation on Linux is to use the system TeX Live. On the ITET
+# cluster it lives at /usr/sepp/bin/{latex,dvisvgm}, which pixi keeps on
+# PATH because it appends the system PATH after the env bin dir.
 
 [tool.pixi.pypi-dependencies]
-manim = ">=0.18.0"
-manim-slides = ">=5.1.0"
-numpy = ">=1.26"
+manim-slides = { version = ">=5.5.4,<6", extras = ["manim"] }
 
 # Optional feature: PySide6-based interactive presenter window.
 [tool.pixi.feature.gui.pypi-dependencies]
-manim-slides = { version = ">=5.1.0", extras = ["pyside6-full"] }
+manim-slides = { version = ">=5.5.4,<6", extras = ["manim", "pyside6-full"] }
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
@@ -55,8 +45,10 @@ gui = { features = ["gui"], solve-group = "default" }
 # ---------------------------------------------------------------------------
 
 [tool.pixi.tasks]
-render    = "manim-slides render -ql kl_3d.py KLDivergence3D"
-render-hq = "manim-slides render -qh kl_3d.py KLDivergence3D"
+# `--` separates manim-slides's own flags from the renderer args; without it
+# the `-h` inside `-qh` is intercepted as manim-slides's help flag.
+render    = "manim-slides render -- -ql kl_3d.py KLDivergence3D"
+render-hq = "manim-slides render -- -qh kl_3d.py KLDivergence3D"
 present   = "manim-slides KLDivergence3D"
 convert   = "manim-slides convert KLDivergence3D index.html"
 
