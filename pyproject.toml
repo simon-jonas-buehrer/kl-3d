@@ -1,14 +1,11 @@
 [project]
 name = "kl-3d"
 version = "0.1.0"
-description = "3D KL divergence visualization as Manim Slides."
+description = "3D KL divergence visualization as Manim animations."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 license = { file = "LICENSE" }
 authors = [{ name = "Simon Buehrer", email = "simon.buehrer26@gmail.com" }]
-# All runtime deps are declared under [tool.pixi.*] below. We pull `manim`
-# from conda-forge so manimpango arrives prebuilt with pango/cairo/ffmpeg
-# bundled — no native-lib chase to compile manimpango from a PyPI sdist.
 
 # ---------------------------------------------------------------------------
 # Pixi configuration
@@ -21,44 +18,18 @@ platforms = ["linux-64"]
 [tool.pixi.dependencies]
 python = ">=3.11,<3.13"
 manim = ">=0.19.1,<0.21"
-numpy = ">=1.26"
-# NOTE: LaTeX is intentionally NOT a conda dep. conda-forge's `texlive-core`
-# is a 10 MiB stub (missing the TeXLive::* perl modules, no format files, no
-# packages); manim's MathTex calls fail with mktexfmt errors. The official
-# manim recommendation on Linux is to use the system TeX Live. On the ITET
-# cluster it lives at /usr/sepp/bin/{latex,dvisvgm}, which pixi keeps on
-# PATH because it appends the system PATH after the env bin dir.
 
-[tool.pixi.pypi-dependencies]
-manim-slides = { version = ">=5.5.4,<6", extras = ["manim"] }
-
-# Optional feature: PySide6-based interactive presenter window.
-[tool.pixi.feature.gui.pypi-dependencies]
-manim-slides = { version = ">=5.5.4,<6", extras = ["manim", "pyside6-full"] }
-
-[tool.pixi.environments]
-default = { solve-group = "default" }
-gui = { features = ["gui"], solve-group = "default" }
+# `latex` on /usr/sepp/bin is a 2008 TeX Live (no `standalone.cls`).
+# The ITET cluster also ships TeX Live 2025 at /usr/pack/texlive-2025-sr;
+# prepend its bin dir so manim's MathTex picks up `standalone.cls` and a
+# modern `dvisvgm`. Harmless on hosts without that path.
+[tool.pixi.activation.env]
+PATH = "/usr/pack/texlive-2025-sr/2025/bin/x86_64-linux:$PATH"
 
 # ---------------------------------------------------------------------------
 # Tasks: invoke with `pixi run <name>`
 # ---------------------------------------------------------------------------
 
 [tool.pixi.tasks]
-# `--` separates manim-slides's own flags from the renderer args; without it
-# the `-h` inside `-qh` is intercepted as manim-slides's help flag.
-render    = "manim-slides render -- -ql kl_3d.py KLDivergence3D"
-render-hq = "manim-slides render -- -qh kl_3d.py KLDivergence3D"
-present   = "manim-slides KLDivergence3D"
-convert   = "manim-slides convert KLDivergence3D index.html"
-
-[tool.pixi.tasks.build-site]
-# Render + convert to a self-contained Reveal.js HTML page in _site/, then
-# copy whatever asset folder manim-slides referenced.
-cmd = """
-mkdir -p _site && \
-manim-slides convert KLDivergence3D _site/index.html && \
-( [ -d slides ]        && cp -r slides        _site/slides        || true ) && \
-( [ -d index_assets ]  && cp -r index_assets  _site/index_assets  || true )
-"""
-depends-on = ["render"]
+render    = "manim -ql kl_3d.py KLTranslation KLScaling KLCombined"
+render-hq = "manim -qh kl_3d.py KLTranslation KLScaling KLCombined"

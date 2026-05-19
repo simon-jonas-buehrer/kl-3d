@@ -1,21 +1,21 @@
-# KL Divergence in 3D — Manim Slides
+# KL Divergence in 3D — Manim
 
-A short [Manim](https://www.manim.community/) presentation built with the
-[`manim-slides`](https://www.manim.community/plugin/manim-slides/) plugin that
-extends the classic 1D Gaussian-shift example of the Kullback–Leibler
-divergence into **three dimensions**.
+Three short [Manim](https://www.manim.community/) animations extending the
+classic 1D Gaussian-shift example of the Kullback–Leibler divergence into
+**three dimensions**.
 
-Two isotropic 3D Gaussians are rendered as semi-transparent spheres drawn at
-their 60 % probability isosurface — the same convention used to depict atomic
-orbitals in quantum mechanics. The animation then varies:
+Two isotropic 3D Gaussians are drawn as semi-transparent spheres at their
+60 % probability isosurface — the same convention used to depict atomic
+orbitals in quantum mechanics. A horizontal stacked bar shows how each
+contribution to $D_{KL}(p\,\|\,q)$ grows:
 
-1. the **translation** of $\mu_q$ away from $\mu_p$,
-2. the **scaling** of $\sigma_q$ while $\mu_q = \mu_p$,
-3. the **combined** motion of both.
+| color | term                                                       | what it measures            |
+|------:|------------------------------------------------------------|-----------------------------|
+| teal  | $\dfrac{\|\mu_p-\mu_q\|^2}{2\,\sigma_q^2}$                 | translation contribution    |
+| gold  | $\dfrac{1}{2}\!\left[\dfrac{3\sigma_p^2}{\sigma_q^2}-3+3\ln\dfrac{\sigma_q^2}{\sigma_p^2}\right]$ | scale contribution |
 
-A live read-out of $D_{KL}(p\,\|\,q)$ updates as the q-orbital deforms.
-
-The closed-form KL divergence between two isotropic Gaussians in $d$ dimensions is
+Their sum is the full closed-form KL between two isotropic Gaussians in
+$d=3$ dimensions:
 
 $$
 D_{KL}\bigl(\mathcal{N}(\mu_p,\sigma_p^2 I) \,\big\|\, \mathcal{N}(\mu_q,\sigma_q^2 I)\bigr)
@@ -27,101 +27,49 @@ d\,\frac{\sigma_p^2}{\sigma_q^2}
 \right].
 $$
 
-## Live slides
+## Scenes
 
-Once GitHub Pages is enabled on this repo, the rendered Reveal.js slides are
-served at:
+| scene           | varies                                | output mp4 (default `-ql`)                                |
+|-----------------|---------------------------------------|-----------------------------------------------------------|
+| `KLTranslation` | $\mu_q$ (with $\sigma_q = \sigma_p$)  | `media/videos/kl_3d/480p15/KLTranslation.mp4`             |
+| `KLScaling`     | $\sigma_q$ (with $\mu_q = \mu_p$)     | `media/videos/kl_3d/480p15/KLScaling.mp4`                 |
+| `KLCombined`    | $\mu_q$ and $\sigma_q$ together       | `media/videos/kl_3d/480p15/KLCombined.mp4`                |
 
-    https://<your-user>.github.io/<this-repo>/
+## Render
 
-(See _Hosting on GitHub Pages_ below.)
+This project uses [`pixi`](https://pixi.sh) for environment management. The
+env pulls `manim` (and its prebuilt `manimpango` + Pango/Cairo/ffmpeg stack)
+from **conda-forge** so there's no source-build chase on Linux.
 
-## Local rendering
-
-This project uses [`pixi`](https://pixi.sh) for environment management. Pixi
-pulls `manim` (and its prebuilt `manimpango` + Pango/Cairo/ffmpeg stack) from
-**conda-forge**, plus `manim-slides` from PyPI, into a single user-local env
-defined by [`pyproject.toml`](pyproject.toml) and locked in `pixi.lock`. Using
-the conda-forge `manim` avoids the source-build chase that the PyPI `manim`
-triggers on Linux (no `manimpango` wheels → must compile against
-Pango/Cairo/HarfBuzz/Expat/…).
-
-LaTeX is the one exception: conda-forge's `texlive-core` is a 10 MiB stub
-that's missing the Perl helpers `mktexfmt` needs at first run. The
-[official manim recommendation](https://docs.manim.community/en/stable/installation/linux.html)
-is to use a system TeX Live, so this env expects `latex` and `dvisvgm` to
-be discoverable on `PATH`. On the ITET cluster that's `/usr/sepp/bin/`;
-on a fresh Debian/Ubuntu host install
+LaTeX is the one exception: conda-forge's `texlive-core` is a 10 MiB stub.
+On the ITET cluster, this repo's `pyproject.toml` prepends TeX Live 2025
+(`/usr/pack/texlive-2025-sr/2025/bin/x86_64-linux`) to `PATH` via
+`[tool.pixi.activation.env]`. On a fresh Debian/Ubuntu host install
 `texlive-latex-extra texlive-fonts-recommended texlive-science cm-super dvisvgm`.
 
 Install pixi ([instructions](https://pixi.sh/latest/#installation)), then:
 
 ```bash
-# install everything (default env: no PySide6 GUI presenter)
-pixi install
-
-# or include the interactive presenter window
-pixi install --environment gui
-
-# render the slides (low quality)
-pixi run render
-
-# play interactively (requires the gui env)
-pixi run --environment gui present
-
-# build the self-contained Reveal.js HTML in _site/index.html
-pixi run build-site
-xdg-open _site/index.html
+pixi install                # solve + materialize the env
+pixi run render             # render all three scenes at 480p15 (-ql)
+pixi run render-hq          # render all three at 1080p60 (-qh)
 ```
 
-Tasks (`pixi run <name>`):
+Output goes to `media/videos/kl_3d/<quality>/<SceneName>.mp4`.
 
-| task         | command                                                          |
-|--------------|------------------------------------------------------------------|
-| `render`     | `manim-slides render -ql kl_3d.py KLDivergence3D`                |
-| `render-hq`  | `manim-slides render -qh kl_3d.py KLDivergence3D` (1080p)        |
-| `present`    | `manim-slides KLDivergence3D` (interactive, requires `gui` env)  |
-| `convert`    | `manim-slides convert KLDivergence3D index.html`                 |
-| `build-site` | `render` + convert into `_site/` for Pages                       |
+To render a single scene, call `manim` directly:
 
-After the first `pixi install`, commit the generated `pixi.lock` so CI gets
-a reproducible install.
-
-## Hosting on GitHub Pages
-
-This repo ships a GitHub Actions workflow
-([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) that on every
-push to `main`:
-
-1. sets up [`pixi`](https://pixi.sh) via `prefix-dev/setup-pixi` with caching;
-2. runs `pixi run build-site` — which renders `KLDivergence3D` at preview
-   quality and converts the result into `_site/index.html` (Reveal.js);
-3. publishes `_site/` to GitHub Pages.
-
-Everything except LaTeX comes from the conda-forge env defined in
-`pyproject.toml` (the `manim` package bundles Pango/Cairo/manimpango/ffmpeg).
-LaTeX (`texlive-latex-extra`, `cm-super`, `dvisvgm`) is apt-installed in the
-CI workflow because conda-forge's `texlive-core` is an incomplete stub.
-
-To enable hosting on a fresh fork:
-
-1. Push the repo to GitHub.
-2. On GitHub, go to **Settings → Pages → Build and deployment → Source** and
-   pick **GitHub Actions**.
-3. Push to `main` (or run the workflow manually from the Actions tab). The
-   first run takes ~5–8 min (apt-installing LaTeX + warming the pixi cache);
-   subsequent runs hit the apt and pixi caches and finish in a few minutes.
-4. The site URL appears in the **Actions → deploy → deploy** job summary and
-   under **Settings → Pages** once the run completes.
+```bash
+pixi run manim -ql kl_3d.py KLTranslation
+```
 
 ## Project layout
 
 ```
 .
-├── kl_3d.py                       # the Manim/Manim-Slides scene
-├── pyproject.toml                 # pixi config + project metadata
-├── pixi.lock                      # generated by `pixi install`
-├── .github/workflows/deploy.yml   # render + deploy to Pages
+├── kl_3d.py          # the three Manim scenes
+├── pyproject.toml    # pixi config + project metadata
+├── pixi.lock         # generated by `pixi install`
 ├── .gitignore
 └── README.md
 ```
