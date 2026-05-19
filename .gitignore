@@ -13,14 +13,11 @@ _site/
 index.html
 index_assets/
 
+# Pixi
+.pixi/
+
 # Editor / OS
 .vscode/
 .idea/
 .DS_Store
 *.swp
-
-# Python venv / uv
-.venv/
-venv/
-env/
-.python-version

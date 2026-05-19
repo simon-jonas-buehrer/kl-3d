@@ -10,8 +10,8 @@ permissions:
   pages: write
   id-token: write
 
-# Allow one concurrent deployment; do not cancel in-progress runs so
-# already-deployed slides stay live until a new one finishes.
+# Allow one concurrent deployment; do not cancel in-progress runs so an
+# already-deployed presentation stays live until a new one finishes.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -23,44 +23,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            ffmpeg \
-            libcairo2-dev \
-            libpango1.0-dev \
-            pkg-config \
-            texlive \
-            texlive-latex-extra \
-            texlive-fonts-extra \
-            texlive-latex-recommended \
-            texlive-science \
-            tipa
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
         with:
-          enable-cache: true
+          # If pixi.lock is committed, this enforces a reproducible install.
+          # If absent (first run on a fresh fork), pixi resolves from scratch.
+          frozen: false
+          cache: true
 
-      - name: Sync Python environment with uv
-        run: uv sync --frozen || uv sync
-
-      - name: Render Manim scene
-        run: uv run manim-slides render -ql kl_3d.py KLDivergence3D
-
-      - name: Convert slides to HTML
-        run: |
-          mkdir -p _site
-          uv run manim-slides convert KLDivergence3D _site/index.html
-
-      - name: Copy slide assets (videos)
-        run: |
-          # manim-slides convert references the rendered videos by relative
-          # path; copy the slides/ directory and any companion asset folder.
-          [ -d slides ] && cp -r slides _site/slides || true
-          [ -d index_assets ] && cp -r index_assets _site/index_assets || true
+      - name: Render slides and build site
+        run: pixi run build-site
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

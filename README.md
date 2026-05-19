@@ -38,48 +38,47 @@ served at:
 
 ## Local rendering
 
-This project uses [`uv`](https://docs.astral.sh/uv/) for Python dependency
-management. Install it first
-([instructions](https://docs.astral.sh/uv/getting-started/installation/)).
+This project uses [`pixi`](https://pixi.sh) for environment management. Pixi
+pulls **both** the conda-forge system libraries (`pango`, `cairo`,
+`pkg-config`, `ffmpeg`, `texlive-core`) and the PyPI Python packages
+(`manim`, `manim-slides`, `numpy`) into a single user-local env defined by
+[`pyproject.toml`](pyproject.toml) and locked in `pixi.lock`. That avoids
+the usual "I don't have sudo to apt-install Pango" pain — important here
+because `manimpango` ships no Linux wheels on PyPI and must be compiled
+from source.
 
-> **Linux build prerequisites.** `manimpango` (pulled in transitively by
-> `manim`) publishes no Linux wheels on PyPI — it is always compiled from
-> source. Compilation needs Pango, Cairo, `pkg-config` and the CPython
-> development headers (`Python.h`) on disk.
->
-> * **With sudo**: `sudo apt install build-essential pkg-config python3-dev
->   libcairo2-dev libpango1.0-dev ffmpeg`.
-> * **Without sudo** (shared cluster, no apt access): use the helper script
->   which provisions these via conda-forge into a user-local env:
->
->   ```bash
->   ./scripts/bootstrap-linux.sh        # uses micromamba / mamba / conda
->   micromamba activate kl3d            # or your conda flavour
->   ```
-
-Once the system libs are visible, drive everything with uv:
+Install pixi ([instructions](https://pixi.sh/latest/#installation)), then:
 
 ```bash
-# 1. create the venv and install deps from pyproject.toml
-uv sync --extra gui          # --extra gui adds the PySide6 presenter
+# install everything (default env: no PySide6 GUI presenter)
+pixi install
 
-# 2. render the slides (low-quality preview is fine for browsing)
-uv run manim-slides render -ql kl_3d.py KLDivergence3D
+# or include the interactive presenter window
+pixi install --environment gui
 
-# 3a. play interactively (PySide6 window with arrow keys)
-uv run manim-slides KLDivergence3D
+# render the slides (low quality)
+pixi run render
 
-# 3b. or export a self-contained Reveal.js HTML
-uv run manim-slides convert KLDivergence3D index.html
-xdg-open index.html
+# play interactively (requires the gui env)
+pixi run --environment gui present
+
+# build the self-contained Reveal.js HTML in _site/index.html
+pixi run build-site
+xdg-open _site/index.html
 ```
 
-Higher quality:
+Tasks (`pixi run <name>`):
 
-```bash
-uv run manim-slides render -qh kl_3d.py KLDivergence3D     # 1080p
-uv run manim-slides render -qk kl_3d.py KLDivergence3D     # 4K (slow)
-```
+| task         | command                                                          |
+|--------------|------------------------------------------------------------------|
+| `render`     | `manim-slides render -ql kl_3d.py KLDivergence3D`                |
+| `render-hq`  | `manim-slides render -qh kl_3d.py KLDivergence3D` (1080p)        |
+| `present`    | `manim-slides KLDivergence3D` (interactive, requires `gui` env)  |
+| `convert`    | `manim-slides convert KLDivergence3D index.html`                 |
+| `build-site` | `render` + convert into `_site/` for Pages                       |
+
+After the first `pixi install`, commit the generated `pixi.lock` so CI gets
+a reproducible install.
 
 ## Hosting on GitHub Pages
 
@@ -87,11 +86,14 @@ This repo ships a GitHub Actions workflow
 ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) that on every
 push to `main`:
 
-1. installs ffmpeg, Cairo/Pango, a full TeX Live;
-2. sets up [`uv`](https://docs.astral.sh/uv/) and runs `uv sync`;
-3. renders `KLDivergence3D` at preview quality (`uv run manim-slides render -ql`);
-4. converts the result to a self-contained Reveal.js HTML file;
-5. publishes it to GitHub Pages.
+1. sets up [`pixi`](https://pixi.sh) via `prefix-dev/setup-pixi` with caching;
+2. runs `pixi run build-site` — which renders `KLDivergence3D` at preview
+   quality and converts the result into `_site/index.html` (Reveal.js);
+3. publishes `_site/` to GitHub Pages.
+
+No apt steps, no manual TeX Live install — `texlive-core`, ffmpeg, Pango,
+Cairo and `pkg-config` all come from the conda-forge env defined in
+`pyproject.toml`.
 
 To enable hosting on a fresh fork:
 
@@ -99,22 +101,18 @@ To enable hosting on a fresh fork:
 2. On GitHub, go to **Settings → Pages → Build and deployment → Source** and
    pick **GitHub Actions**.
 3. Push to `main` (or run the workflow manually from the Actions tab). The
-   first run takes ~6–10 min because of the TeX Live install + 3D render.
+   first run takes ~6–10 min (texlive-core is ~1 GB); subsequent runs hit
+   the pixi cache and finish in a few minutes.
 4. The site URL appears in the **Actions → deploy → deploy** job summary and
    under **Settings → Pages** once the run completes.
-
-> **Tip:** if you want a faster CI loop, edit `-ql` to `-qm` in the workflow
-> only after the slides look right at low quality, and consider caching the
-> apt + pip layers.
 
 ## Project layout
 
 ```
 .
 ├── kl_3d.py                       # the Manim/Manim-Slides scene
-├── pyproject.toml                 # uv-managed deps
-├── uv.lock                        # generated by `uv sync` / `uv lock`
-├── scripts/bootstrap-linux.sh     # provisions Pango/Cairo/Python via conda
+├── pyproject.toml                 # pixi config + project metadata
+├── pixi.lock                      # generated by `pixi install`
 ├── .github/workflows/deploy.yml   # render + deploy to Pages
 ├── .gitignore
 └── README.md

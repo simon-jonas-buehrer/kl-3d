@@ -3,19 +3,62 @@ name = "kl-3d"
 version = "0.1.0"
 description = "3D KL divergence visualization as Manim Slides."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 license = { file = "LICENSE" }
 authors = [{ name = "Simon Buehrer", email = "simon.buehrer26@gmail.com" }]
-dependencies = [
-    "manim>=0.18.0",
-    "manim-slides>=5.1.0",
-    "numpy>=1.26",
-]
+# All runtime deps are declared under [tool.pixi.*] below; pixi manages both
+# the conda-forge system libraries (pango/cairo/ffmpeg/texlive) and the PyPI
+# Python packages in one lockfile.
 
-[project.optional-dependencies]
-# Interactive presenter window (PySide6 + Qt). Not needed in CI.
-gui = ["manim-slides[pyside6-full]>=5.1.0"]
+# ---------------------------------------------------------------------------
+# Pixi configuration
+# ---------------------------------------------------------------------------
 
-[tool.uv]
-# Reproducible resolution for CI.
-package = false
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64", "osx-64"]
+
+[tool.pixi.dependencies]
+python = ">=3.11,<3.13"
+# Native libs that manimpango compiles against (no Linux wheels on PyPI).
+pango = "*"
+cairo = "*"
+pkg-config = "*"
+# Manim video output.
+ffmpeg = "*"
+# LaTeX for Tex/MathTex mobjects. Heavy (~1 GB) but the simplest path.
+texlive-core = "*"
+
+[tool.pixi.pypi-dependencies]
+manim = ">=0.18.0"
+manim-slides = ">=5.1.0"
+numpy = ">=1.26"
+
+# Optional feature: PySide6-based interactive presenter window.
+[tool.pixi.feature.gui.pypi-dependencies]
+"manim-slides[pyside6-full]" = ">=5.1.0"
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+gui = { features = ["gui"], solve-group = "default" }
+
+# ---------------------------------------------------------------------------
+# Tasks: invoke with `pixi run <name>`
+# ---------------------------------------------------------------------------
+
+[tool.pixi.tasks]
+render    = "manim-slides render -ql kl_3d.py KLDivergence3D"
+render-hq = "manim-slides render -qh kl_3d.py KLDivergence3D"
+present   = "manim-slides KLDivergence3D"
+convert   = "manim-slides convert KLDivergence3D index.html"
+
+[tool.pixi.tasks.build-site]
+# Render + convert to a self-contained Reveal.js HTML page in _site/, then
+# copy whatever asset folder manim-slides referenced.
+cmd = """
+mkdir -p _site && \
+manim-slides convert KLDivergence3D _site/index.html && \
+( [ -d slides ]        && cp -r slides        _site/slides        || true ) && \
+( [ -d index_assets ]  && cp -r index_assets  _site/index_assets  || true )
+"""
+depends-on = ["render"]
