@@ -16,7 +16,9 @@ authors = [{ name = "Simon Buehrer", email = "simon.buehrer26@gmail.com" }]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64", "osx-arm64", "osx-64"]
+# texlive-core on osx-arm64 pins python to 3.10, which conflicts with the
+# >=3.11 requirement below. Keep this list to platforms we actually use.
+platforms = ["linux-64"]
 
 [tool.pixi.dependencies]
 python = ">=3.11,<3.13"
