@@ -26,6 +26,12 @@ python = ">=3.11,<3.13"
 pango = "*"
 cairo = "*"
 pkg-config = "*"
+# pango pulls in glib whose gio-2.0.pc requires zlib via pkg-config; the
+# build of manimpango fails without an explicit zlib package providing
+# zlib.pc. Pinning these transitive build deps avoids surprises.
+zlib = "*"
+glib = "*"
+harfbuzz = "*"
 # Manim video output.
 ffmpeg = "*"
 # LaTeX for Tex/MathTex mobjects. Heavy (~1 GB) but the simplest path.
