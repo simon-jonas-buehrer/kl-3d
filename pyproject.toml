@@ -36,7 +36,7 @@ numpy = ">=1.26"
 
 # Optional feature: PySide6-based interactive presenter window.
 [tool.pixi.feature.gui.pypi-dependencies]
-"manim-slides[pyside6-full]" = ">=5.1.0"
+manim-slides = { version = ">=5.1.0", extras = ["pyside6-full"] }
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
