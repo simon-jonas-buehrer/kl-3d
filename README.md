@@ -9,15 +9,20 @@ visualized as a stacked bar.
 
 ### Translate $\mu_q$
 
-<video src="videos/KLTranslation.mp4" controls width="640"></video>
+![](videos/KLTranslation.gif)
 
 ### Scale $\sigma_q$
 
-<video src="videos/KLScaling.mp4" controls width="640"></video>
+![](videos/KLScaling.gif)
 
 ### Both together
 
-<video src="videos/KLCombined.mp4" controls width="640"></video>
+![](videos/KLCombined.gif)
+
+> The `.mp4` originals (sharper, smaller) are next to the gifs:
+> [Translation](videos/KLTranslation.mp4) ·
+> [Scaling](videos/KLScaling.mp4) ·
+> [Combined](videos/KLCombined.mp4).
 
 ## Render
 
