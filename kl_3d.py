@@ -1,42 +1,45 @@
-"""
-PAC-Bayes KL in weight space (the ML view of KL, not the information-theory one).
+r"""
+PAC-Bayes KL in weight space:  KL(Q,P) = the INTRINSIC INFORMATION a solution
+carries, and the loss CURVATURE (Hessian) is what sets it.
 
-A single Manim scene, ``KLStory`` (the full ACT 1->7 film described in
-STORYBOARD.md), with two synced panels:
+A single Manim scene, ``KLStory``, with two synced panels.
 
-    LEFT  -- a 2-D PROJECTION: training loss L(w) along a 1-D weight slice, the
-             budget line z = eps, the feasible interval {w : L(w) <= eps}, and
-             the PAC-Bayes test-loss bound. The posterior is drawn here as a
-             density "bell" sitting in a well; its samples on the loss curve go
-             RED when they spill above the eps budget.
+    LEFT  -- a 1-D weight slice of the training loss L(theta).  We mark the
+             trained minimiser theta_f, fit the OSCULATING PARABOLA there (its
+             curvature IS the Hessian H = nabla^2 L(theta_f)), draw the prior P
+             and posterior Q as density bells, and show the two loss levels
+             L(theta_f) and L(Q) = E_{theta~Q}[L(theta)] whose gap is the
+             tolerance epsilon:   | L(Q) - L(theta_f) | <= epsilon.
 
-    RIGHT -- 3-D BALLS in weight space: each Gaussian distribution is a ball
-             whose radius is its spread. A big translucent prior P, and a
-             posterior Q that starts as wide as P and then SHRINKS to fit the
-             budget. KL(Q || P) is read off the ball: how much smaller (and
-             shifted) Q is than P.
+    RIGHT -- weight space.  The prior P is a round ball; the posterior Q is a
+             ball too -- it RESCALES UNIFORMLY IN ALL DIMENSIONS (we only slice
+             one weight direction, so nothing privileges an axis).  The shrunken
+             volume of Q vs P is the information KL(Q,P) measures.
 
-The two move together: as the posterior ball shrinks on the right, the bell
-narrows on the left and its samples come back under the eps line.
+The idea (what min KL "means"):
 
-Story:
-    * Training picks a DISTRIBUTION Q over weights (Bayes-by-Backprop).
-    * A fixed, data-independent PRIOR P (the init distribution) is broad.
-    * We want the widest Q with E_{w~Q}[L(w)] <= eps  ->  minimal KL(Q||P).
-    * KL(Q||P) is the complexity term of the PAC-Bayes bound
-          E_Q[L_test] <= E_Q[L_train] + sqrt( (KL(Q||P) + ln 1/delta) / 2n ).
+    * Training picks a DISTRIBUTION Q over weights; the prior P = N(0, sigma^2 I)
+      is broad and data-independent.
+    * Penalised objective:   min_Q  E_{theta~Q}[L(theta)] + beta * KL(Q,P),
+      equivalently  min_Q KL(Q,P)  s.t.  | L(Q) - L(theta_f) | <= epsilon
+      (keep the EXPECTED loss L(Q) within a tolerance epsilon of the minimum).
+    * For a locally-quadratic loss this has the closed form
+          Q = N( theta_f, (beta/2) (H + (beta/2) I_d)^{-1} ),   H = nabla^2 L(theta_f),
+      so the posterior covariance is the INVERSE CURVATURE.
+    * KL(Q,P) is the complexity term of the PAC-Bayes bound
+          E_Q[L_test] <= E_Q[L_train] + sqrt( (KL(Q,P) + ln 1/delta) / 2n ).
 
-    * FLAT well  -> tiny shrink  -> Q ~ P -> low  KL -> tight bound -> generalizes
-    * SHARP well -> big shrink   -> Q << P -> high KL -> loose bound
+    * FLAT minimum  (small H) -> wide Q ~ P -> LOW  KL -> little information -> tight bound
+    * SHARP minimum (large H) -> narrow Q   -> HIGH KL -> much  information -> loose bound
 
-Both wells have equal training loss, and (P being equidistant) the KL mean-shift
-term is equal too -- the whole gap is the flatness / variance term.
+So minimising KL = the FLATTEST, least-informative posterior that still fits.
 
-The film first shows a small network training (its weights become one point in
-weight space, drifting away from the prior ball) before the loss/eps/KL climax.
+The film:  ACT 1 train (a weight vector drifts from P to theta_f) ;  ACT 2 the
+well + its Hessian ;  ACT 3 the budget epsilon (the L(Q) vs L(theta_f) gap) and
+the curvature-shaped posterior Q ;  ACT 4a MORPH the curvature flat<->sharp at
+fixed epsilon ;  ACT 4b SWEEP epsilon at fixed curvature ;  ACT 5 the payoff.
 
-Render:
-    manim -ql kl_3d.py KLStory      (smoke test: manim -s -ql kl_3d.py KLStory)
+Render:  manim -ql kl_3d.py KLStory      (smoke test: manim -s -ql kl_3d.py KLStory)
 """
 
 from __future__ import annotations
@@ -55,177 +58,118 @@ TEXT_COLOR = BLACK
 AXIS_COLOR = GREY_C
 CURVE_COLOR = GREY_D
 P_COLOR = BLUE_D            # prior P
-Q_COLOR = MAROON_C         # posterior Q (the ball / bell that moves)
-Q_FLAT_COLOR = GREEN_D
-Q_SHARP_COLOR = RED_D
-BUDGET_COLOR = GOLD_E       # eps line
-MEAN_TERM_COLOR = TEAL_D
-SCALE_TERM_COLOR = GOLD_E
-OVER_COLOR = RED_E          # samples above budget
+Q_COLOR = MAROON_C         # posterior Q
+HESS_COLOR = TEAL_E         # the osculating parabola / Hessian
+BUDGET_COLOR = GOLD_E       # epsilon tolerance / L(Q) level
+KL_COLOR = PURPLE_D         # KL(Q,P) = information
+SHIFT_COLOR = TEAL_D        # mean-shift segment
 
 # ---------------------------------------------------------------------------
-# Loss landscape over a 1-D weight slice
-#   L(w) = base - depth*exp(-(w-c_flat)^2/2s_flat^2) - depth*exp(-(w-c_sharp)^2/2s_sharp^2)
-# Equal depth => both minima reach the same training loss (fair comparison);
-# only the basin WIDTH differs.
+# Single Gaussian well over a 1-D weight slice; its WIDTH s controls curvature.
+#   L(theta) = BASE - DEPTH * exp(-(theta-theta_f)^2 / 2 s^2)
+#   H = L''(theta_f) = DEPTH / s^2     (small s -> sharp -> large H)
 # ---------------------------------------------------------------------------
 
 W_MIN, W_MAX = -4.5, 4.5
 L_MAX = 4.5
 
 BASE = 4.0
-DEPTH = 4.0
-C_FLAT = -2.2
-S_FLAT = 1.6
-C_SHARP = 2.2
-S_SHARP = 0.55
+DEPTH = 3.5
+C_WELL = 1.8               # theta_f: the trained minimiser
+L_MIN = BASE - DEPTH       # L(theta_f), the loss at the minimiser (= 0.5)
 
-EPS = 2.0                  # loss budget
-SIGMA_P = 2.0              # broad, data-independent prior
-MU_P = 0.0                 # equidistant from both wells
-D_DIM = 2                  # KL math uses a 2-D weight space
+S_FLAT = 1.6               # flat well  (gentle curvature)
+S_MID = 1.0
+S_SHARP = 0.55             # sharp well (steep curvature)
 
-
-def loss_1d(w: float) -> float:
-    return float(
-        BASE
-        - DEPTH * np.exp(-(w - C_FLAT) ** 2 / (2.0 * S_FLAT ** 2))
-        - DEPTH * np.exp(-(w - C_SHARP) ** 2 / (2.0 * S_SHARP ** 2))
-    )
+EPS_START = 1.2            # tolerance on the EXPECTED loss L(Q) over the minimum
+SIGMA_P = 2.0              # broad prior  P = N(0, sigma^2 I)
+MU_P = 0.0
 
 
-def feasible_halfwidth(s: float) -> float:
-    """Half-width of {L <= eps} around an isolated well of width s."""
-    return s * float(np.sqrt(2.0 * np.log(DEPTH / (BASE - EPS))))
+def loss_1d(w: float, s: float = S_MID) -> float:
+    return float(BASE - DEPTH * np.exp(-(w - C_WELL) ** 2 / (2.0 * s ** 2)))
 
 
-HW_FLAT = feasible_halfwidth(S_FLAT)     # ~1.88
-HW_SHARP = feasible_halfwidth(S_SHARP)   # ~0.65
-SIGMA_Q_FLAT = min(HW_FLAT, SIGMA_P)
-SIGMA_Q_SHARP = min(HW_SHARP, SIGMA_P)
+def hessian(s: float) -> float:
+    """H = L''(theta_f) for the Gaussian well of width s."""
+    return DEPTH / s ** 2
 
 
-def kl_mean_term(mu_q: float, mu_p: float = MU_P, sigma_p: float = SIGMA_P) -> float:
-    return 0.5 * (mu_q - mu_p) ** 2 / sigma_p ** 2 * D_DIM / 1.0 * (1.0 / D_DIM) \
-        if False else 0.5 * (mu_q - mu_p) ** 2 / sigma_p ** 2
+def parabola(w: float, s: float) -> float:
+    """Osculating parabola at theta_f: L(theta_f) + 1/2 H (theta-theta_f)^2."""
+    return float(L_MIN + 0.5 * hessian(s) * (w - C_WELL) ** 2)
 
 
-def kl_scale_term(sigma_q: float, sigma_p: float = SIGMA_P, d: int = D_DIM) -> float:
-    return 0.5 * (d * sigma_q ** 2 / sigma_p ** 2 - d
-                  + d * np.log(sigma_p ** 2 / sigma_q ** 2))
+def sigma_q(s: float, eps: float) -> float:
+    """1-sigma spread of Q: widest Q whose EXPECTED loss meets the tolerance,
+        L(Q) - L(theta_f) <= eps,  with L(Q) = E_{theta~Q}[L(theta)].
+    The excess is DEPTH*(1 - s/sqrt(s^2+sigma^2)); solving = eps gives
+    sigma = s*sqrt((DEPTH/(DEPTH-eps))^2 - 1) -- the constrained twin of the
+    curvature posterior Q = N(theta_f, (beta/2)(H+(beta/2)I)^-1)."""
+    denom = DEPTH - eps
+    if denom <= 0:
+        return SIGMA_P
+    r = DEPTH / denom
+    return float(np.clip(s * np.sqrt(r * r - 1.0), 0.18, SIGMA_P))
 
 
-def kl_total(mu_q: float, sigma_q: float) -> float:
-    return kl_mean_term(mu_q) + kl_scale_term(sigma_q)
+def kl_info(sigma: float) -> float:
+    """KL(Q,P) in nats = information Q carries beyond P (mean shift + scale)."""
+    mean = 0.5 * (C_WELL - MU_P) ** 2 / SIGMA_P ** 2
+    scale = 0.5 * (sigma ** 2 / SIGMA_P ** 2 - 1.0 + np.log(SIGMA_P ** 2 / sigma ** 2))
+    return float(mean + scale)
 
 
 # ---------------------------------------------------------------------------
-# LEFT panel: the 2-D loss plot and the posterior "bell"
+# LEFT panel helpers (2-D loss plot)
 # ---------------------------------------------------------------------------
 
-def make_loss_plot() -> tuple[Axes, VGroup]:
+def make_axes() -> tuple[Axes, VGroup]:
     plot = Axes(
         x_range=[W_MIN, W_MAX, 1.5], y_range=[0, L_MAX, 1.0],
         x_length=5.4, y_length=3.3,
         axis_config={"include_tip": False, "color": AXIS_COLOR, "stroke_width": 1.6},
     )
-    x_lab = plot.get_x_axis_label(MathTex("w", color=TEXT_COLOR).scale(0.7),
+    x_lab = plot.get_x_axis_label(MathTex(r"\theta", color=TEXT_COLOR).scale(0.7),
                                   edge=RIGHT, direction=RIGHT, buff=0.15)
-    y_lab = plot.get_y_axis_label(MathTex("L(w)", color=TEXT_COLOR).scale(0.7),
-                                  edge=UP, direction=UP, buff=0.15)
-
-    curve = plot.plot(lambda w: float(np.clip(loss_1d(w), 0, L_MAX)),
-                      x_range=[W_MIN, W_MAX, 0.05], color=CURVE_COLOR, stroke_width=3)
-
-    # The eps line and the feasible bands are now DYNAMIC (built in construct,
-    # driven by a ValueTracker), so the static plot is just axes + curve.
-    group = VGroup(plot, x_lab, y_lab, curve)
-    return plot, group
+    y_lab = plot.get_y_axis_label(MathTex(r"\mathcal{L}(\theta)", color=TEXT_COLOR)
+                                  .scale(0.7), edge=UP, direction=UP, buff=0.15)
+    return plot, VGroup(plot, x_lab, y_lab)
 
 
-def well_halfwidth(s: float, eps: float) -> float:
-    """Half-width of {L <= eps} around an isolated well of width s, at level eps."""
-    arg = DEPTH / max(BASE - eps, 1e-3)
-    return 0.0 if arg <= 1.0 else s * float(np.sqrt(2.0 * np.log(arg)))
+def loss_curve(plot: Axes, s: float) -> ParametricFunction:
+    return plot.plot(lambda w: float(np.clip(loss_1d(w, s), 0, L_MAX)),
+                     x_range=[W_MIN, W_MAX, 0.05], color=CURVE_COLOR, stroke_width=3)
 
 
-def fit_sigma(s: float, eps: float) -> float:
-    """Widest Q (1-sigma) that still fits the well's feasible region at level eps."""
-    return float(np.clip(well_halfwidth(s, eps), 0.18, SIGMA_P))
-
-
-def feas_segment(plot: Axes, center: float, hw: float, color) -> Line:
-    """A thick segment on the w-axis marking a well's feasible interval."""
-    hw = max(hw, 1e-3)
-    a = plot.c2p(max(W_MIN, center - hw), 0)
-    b = plot.c2p(min(W_MAX, center + hw), 0)
-    return Line(a, b, color=color, stroke_width=7).set_opacity(0.6)
-
-
-# ---------------------------------------------------------------------------
-# Closed-form Gaussian posterior (PAC-Bayes / Laplace) and the certified gap.
-#
-#   min_Q  KL(Q||P)   trading off training loss  ->  for Gaussian P,Q and a
-#   locally-quadratic loss with curvature a = L''(w*) = DEPTH/S^2, the optimal
-#   posterior std obeys precision-addition:   1/sigma_Q^2 = 1/sigma_P^2 + a/beta.
-#   Flat well (small a) -> wide Q -> small KL.  Sharp well -> narrow Q -> big KL.
-#
-#   The PAC-Bayes bound then caps the EXPECTED test-train gap:
-#       E_Q[L_test - L_train] <= sqrt( (KL + ln(n/delta)) / (2(n-1)) )  ~  sqrt(KL).
-#   We require that gap <= eps.  (Constants here are schematic -- small-sample --
-#   so the gap visibly tracks sqrt(KL); the SHAPE is the message, not the scale.)
-# ---------------------------------------------------------------------------
-
-A_FLAT = DEPTH / S_FLAT ** 2            # gentle curvature
-A_SHARP = DEPTH / S_SHARP ** 2          # steep curvature
-BETA = 6.0                              # KL trade-off weight (penalised form)
-
-
-def sigma_closed_form(a: float, beta: float = BETA, sigma_p: float = SIGMA_P) -> float:
-    return float(np.sqrt(1.0 / (1.0 / sigma_p ** 2 + a / beta)))
-
-
-GAP_DIV = 2.0                           # schematic 2(n-1); keeps gap ~ sqrt(KL)
-
-
-def cert_gap(kl: float) -> float:
-    """Certified PAC-Bayes test-train gap (schematic constants)."""
-    return float(np.sqrt(max(kl, 0.0) / GAP_DIV))
+def parab_curve(plot: Axes, s: float) -> ParametricFunction:
+    hw = min(C_WELL - W_MIN, W_MAX - C_WELL,
+             float(np.sqrt(2.0 * (L_MAX - L_MIN) / hessian(s))))
+    return plot.plot(lambda w: parabola(w, s),
+                     x_range=[C_WELL - hw, C_WELL + hw, 0.03],
+                     color=HESS_COLOR, stroke_width=2.5).set_stroke(opacity=0.9)
 
 
 def make_bell(plot: Axes, mu: float, sigma: float, color, *,
               h_scale: float = 1.7, opacity: float = 0.35) -> VGroup:
-    """Posterior/prior density drawn as a filled bell on the loss plot.
-    Peak height ~ 1/sigma (narrow => tall), so shrinking lifts the spike."""
+    """Density bell on the loss plot; peak height ~ 1/sigma (narrow => tall)."""
     H = min(h_scale / sigma, L_MAX - 0.2)
-    lo = max(W_MIN, mu - 3.4 * sigma)        # clamp so the bell never spills
-    hi = min(W_MAX, mu + 3.4 * sigma)        # off the plot axes
+    lo = max(W_MIN, mu - 3.4 * sigma)
+    hi = min(W_MAX, mu + 3.4 * sigma)
     f = lambda w: H * float(np.exp(-(w - mu) ** 2 / (2.0 * sigma ** 2)))
     curve = plot.plot(f, x_range=[lo, hi, 0.04], color=color, stroke_width=2.5)
     area = plot.get_area(curve, x_range=[lo, hi], color=color, opacity=opacity)
     return VGroup(area, curve)
 
 
-def sample_marks(plot: Axes, mu: float, sigma: float, n: int, seed: int) -> VGroup:
-    """Sampled weights placed on the loss curve; red if they break the budget."""
-    rng = np.random.default_rng(seed)
-    ws = rng.normal(mu, sigma, size=n)
-    dots = VGroup()
-    for w in ws:
-        w = float(np.clip(w, W_MIN, W_MAX))
-        L = loss_1d(w)
-        col = OVER_COLOR if L > EPS + 1e-3 else Q_FLAT_COLOR
-        dots.add(Dot(plot.c2p(w, np.clip(L, 0, L_MAX)), radius=0.04, color=col))
-    return dots
-
-
 # ---------------------------------------------------------------------------
-# RIGHT panel: 3-D balls in weight space
+# RIGHT panel helpers (weight space: round balls; Q rescales in ALL dimensions)
 # ---------------------------------------------------------------------------
 
-BALL_ORIGIN = np.array([4.3, 0.0, 0.0])   # world centre of the weight-space box
-POS_SCALE = 0.78                          # weight-units -> world units (position)
-RAD_SCALE = 0.60                          # sigma -> world radius
+BALL_ORIGIN = np.array([4.3, 0.0, 0.0])
+POS_SCALE = 0.68
+RAD_SCALE = 0.82
 
 
 def ball_center(mu: float) -> np.ndarray:
@@ -233,27 +177,25 @@ def ball_center(mu: float) -> np.ndarray:
 
 
 def make_ball(mu: float, sigma: float, color, opacity: float) -> Surface:
-    """A clean translucent ball: soft fill, very faint mesh (no busy wireframe)."""
-    s = Sphere(center=ball_center(mu), radius=sigma * RAD_SCALE,
-               resolution=(24, 24))
+    """An isotropic ball of radius sigma (a 1-D slice privileges no axis, so Q
+    scales the SAME in every weight-space dimension)."""
+    s = Sphere(center=ball_center(mu), radius=sigma * RAD_SCALE, resolution=(24, 24))
     s.set_style(fill_opacity=opacity, stroke_width=0.25,
-                stroke_color=color, stroke_opacity=0.35)
+                stroke_color=color, stroke_opacity=0.4)
     s.set_fill(color, opacity=opacity)
     return s
 
 
 # ---------------------------------------------------------------------------
-# ACT 1-3 helpers: a small neural net whose weights train, then collapse to a
-# single point that drifts away from the prior ball in weight space.
+# ACT 1 helpers: a small feed-forward net whose weights train.
 # ---------------------------------------------------------------------------
 
-NET_LAYERS = (3, 4, 2)          # nodes per layer
+NET_LAYERS = (3, 4, 2)
 NET_NODE_COLOR = GREY_E
-EDGE_COLOR = "#2b4a8b"          # one calm blue; |weight| is shown by THICKNESS
+EDGE_COLOR = "#2b4a8b"
 
 
 def _net_node_positions(layers=NET_LAYERS, width=2.6, height=2.6):
-    """Frame-space positions for each node, laid out left-to-right by layer."""
     xs = np.linspace(-width / 2, width / 2, len(layers))
     positions = []
     for li, n in enumerate(layers):
@@ -262,13 +204,15 @@ def _net_node_positions(layers=NET_LAYERS, width=2.6, height=2.6):
     return positions
 
 
-def make_network(center=ORIGIN, layers=NET_LAYERS, seed=7):
-    """Return (group, nodes, edges, weights) for a small feed-forward net.
+def _edge_width(w: float) -> float:
+    return float(np.clip(abs(w) * 5.0, 0.5, 5.5))
 
-    Edge stroke width AND opacity encode |weight| (thick+solid = strong); the
-    colour is constant. ``weights`` is a list of (edge, value) so the caller can
-    re-style them during 'training'.
-    """
+
+def _edge_opacity(w: float) -> float:
+    return float(np.clip(0.28 + abs(w) * 0.55, 0.28, 1.0))
+
+
+def make_network(center=ORIGIN, layers=NET_LAYERS, seed=7):
     rng = np.random.default_rng(seed)
     pos = _net_node_positions(layers)
     nodes = VGroup()
@@ -287,20 +231,10 @@ def make_network(center=ORIGIN, layers=NET_LAYERS, seed=7):
                 e.set_stroke(opacity=_edge_opacity(w))
                 edges.add(e)
                 weights.append([e, w])
-    group = VGroup(edges, nodes)   # edges first so nodes draw on top
-    return group, nodes, edges, weights
-
-
-def _edge_width(w: float) -> float:
-    return float(np.clip(abs(w) * 5.0, 0.5, 5.5))
-
-
-def _edge_opacity(w: float) -> float:
-    return float(np.clip(0.28 + abs(w) * 0.55, 0.28, 1.0))
+    return VGroup(edges, nodes), nodes, edges, weights
 
 
 def retrain_edges(weights, rng, scale: float = 0.9):
-    """Animations that nudge every edge weight (a step of 'training')."""
     anims = []
     for pair in weights:
         e, _ = pair
@@ -311,87 +245,9 @@ def retrain_edges(weights, rng, scale: float = 0.9):
     return anims
 
 
-# ---------------------------------------------------------------------------
-# Overlay: PAC-Bayes bound + test-loss gauge
-# ---------------------------------------------------------------------------
-
-def guarantee_gauge(kl_flat: float, kl_sharp: float) -> VGroup:
-    TRAIN_W = 0.5
-    PEN_SCALE = 0.6
-    BAR_W = TRAIN_W + PEN_SCALE * kl_sharp + 0.1
-    H = 0.24
-    TRAIN_COLOR = GREY_C
-    PEN_COLOR = PURPLE_D
-
-    def bar(title: str, title_color, kl: float) -> VGroup:
-        head = Text(title, color=title_color, weight=BOLD).scale(0.26)
-        bg = Rectangle(width=BAR_W, height=H, stroke_color=TEXT_COLOR,
-                       stroke_width=1.2, fill_opacity=0)
-        bl = bg.get_corner(DL)
-        train = Rectangle(width=TRAIN_W, height=H - 0.06, fill_color=TRAIN_COLOR,
-                          fill_opacity=0.95, stroke_width=0)
-        train.move_to(bl + np.array([TRAIN_W / 2, H / 2, 0]))
-        pen_w = max(1e-3, PEN_SCALE * kl)
-        pen = Rectangle(width=pen_w, height=H - 0.06, fill_color=PEN_COLOR,
-                        fill_opacity=0.95, stroke_width=0)
-        pen.move_to(bl + np.array([TRAIN_W + pen_w / 2, H / 2, 0]))
-        return VGroup(head, VGroup(bg, train, pen)).arrange(
-            DOWN, aligned_edge=LEFT, buff=0.05)
-
-    legend = VGroup(
-        VGroup(Square(side_length=0.11, fill_color=TRAIN_COLOR, fill_opacity=0.95,
-                      stroke_width=0),
-               Text("empirical loss (equal)", color=TEXT_COLOR).scale(0.24)
-               ).arrange(RIGHT, buff=0.09),
-        VGroup(Square(side_length=0.11, fill_color=PEN_COLOR, fill_opacity=0.95,
-                      stroke_width=0),
-               Text("penalty ∝ KL(Q‖P)", color=TEXT_COLOR).scale(0.24)
-               ).arrange(RIGHT, buff=0.09),
-    ).arrange(DOWN, aligned_edge=LEFT, buff=0.06)
-
-    return VGroup(
-        Text("PAC-Bayes test-loss bound", color=TEXT_COLOR, weight=BOLD).scale(0.28),
-        bar("sharp Q  →  loose", Q_SHARP_COLOR, kl_sharp),
-        bar("flat Q  →  tight", Q_FLAT_COLOR, kl_flat),
-        legend,
-    ).arrange(DOWN, aligned_edge=LEFT, buff=0.14)
-
-
 # ===========================================================================
-# KLStory: the full film described in STORYBOARD.md.
-#
-#   ACT 1-3  (SYNCED)  the prior ball P on the right; we sample ONE weight
-#            vector from it; that vector becomes the network's init weights on
-#            the left.  Training then reshapes the edges (left) WHILE the same
-#            vector drifts away from the prior centre (right) -- the mean shift.
-#   ACT 4    the loss landscape + the epsilon budget
-#   ACT 5    point -> posterior ball Q, grown to the budget (sharp then flat)
-#   ACT 6    read off KL = shift + shrink
-#   ACT 7    PAC-Bayes payoff
-#
-# Captions live at the BOTTOM (never colliding with the corner titles); the two
-# panels move in lockstep inside shared self.play(...) calls.
-#
-# Render:  manim -ql kl_3d.py KLStory      (smoke test: manim -s -ql ...)
+# KLStory
 # ===========================================================================
-
-MU_DRIFT = C_SHARP        # where the trained weights land (the first well we probe)
-
-
-def prior_cloud(n: int, seed: int, color, *, spread: float = 0.62,
-                radius: float = 0.06, opacity: float = 0.45) -> VGroup:
-    """A little cloud of sample dots inside the prior ball P (3-D world)."""
-    rng = np.random.default_rng(seed)
-    g = VGroup()
-    rmax = 1.7 * SIGMA_P * RAD_SCALE
-    for _ in range(n):
-        v = rng.normal(0.0, SIGMA_P * RAD_SCALE * spread, size=3)
-        if np.linalg.norm(v) > rmax:
-            v = v / np.linalg.norm(v) * rmax
-        g.add(Dot3D(point=ball_center(MU_P) + v, radius=radius, color=color)
-              .set_opacity(opacity))
-    return g
-
 
 class KLStory(ThreeDScene):
     def construct(self) -> None:
@@ -404,216 +260,274 @@ class KLStory(ThreeDScene):
         self.add_fixed_in_frame_mobjects(title_L, title_R)
 
         # =================================================================
-        # ACT 1-3 (SYNCED) -- sample init weights from P, then drift away
+        # ACT 1 -- sample init weights from P, train, drift to theta_f
         # =================================================================
-
-        # RIGHT: the 3-D weight space + the broad prior ball P
         ref_axes = ThreeDAxes(
             x_range=[-3, 3, 1.5], y_range=[-2, 2, 1], z_range=[-2, 2, 1],
-            x_length=4.6, y_length=3.1, z_length=3.1,
+            x_length=6.0, y_length=4.0, z_length=4.0,
             axis_config={"include_tip": False, "stroke_color": GREY_B,
                          "stroke_width": 1.2},
         ).move_to(BALL_ORIGIN)
-        prior_ball = make_ball(MU_P, SIGMA_P, P_COLOR, opacity=0.14)
+        prior_ball = make_ball(MU_P, SIGMA_P, P_COLOR, opacity=0.13)
         p_lab = Text("prior P", color=P_COLOR, weight=BOLD).scale(0.3)
         p_lab.to_corner(UR, buff=0.3).shift(DOWN * 0.55)
         self.add_fixed_in_frame_mobjects(p_lab)
 
-        # LEFT: the network -- nodes AND edges together (weights already inited)
         net, nodes, edges, weights = make_network(center=LEFT * 3.5 + UP * 0.15)
 
-        self.play(FadeIn(title_L), FadeIn(title_R), FadeIn(ref_axes),
-                  FadeIn(prior_ball), FadeIn(p_lab), run_time=1.2)
-
-        # the whole network appears at once -- it already carries its init weights
+        # the network (left) and the weight space (right) appear together
         self.add_fixed_in_frame_mobjects(edges, nodes)
         self.bring_to_front(nodes)
-        self.play(FadeIn(edges),
+        self.play(FadeIn(title_L), FadeIn(title_R), FadeIn(ref_axes),
+                  FadeIn(prior_ball), FadeIn(p_lab),
+                  FadeIn(edges),
                   LaggedStartMap(FadeIn, nodes, lag_ratio=0.06, scale=0.5),
-                  run_time=1.0)
-        self.wait(0.3)
+                  run_time=1.3)
+        self.wait(0.2)
 
-        # this network IS one weight vector -- a single point sampled from the
-        # prior, drawn as a vector from the prior centre out to that point.
         init_pt = ball_center(MU_P) + np.array([0.0, 0.62, 0.5])
         dot = Dot3D(point=init_pt, radius=0.085, color=Q_COLOR)
         vec = Line(ball_center(MU_P), init_pt, color=Q_COLOR, stroke_width=3.5)
-        w_lab = MathTex(r"w \sim P", color=Q_COLOR).scale(0.5)
+        w_lab = MathTex(r"\theta \sim P", color=Q_COLOR).scale(0.5)
         w_lab.to_corner(UR, buff=0.3).shift(DOWN * 1.55)
         self.add_fixed_in_frame_mobjects(w_lab)
-        loss_tag = MathTex(r"L = 1.80", color=TEXT_COLOR).scale(0.5)
+        loss_tag = MathTex(r"\mathcal{L} = 1.80", color=TEXT_COLOR).scale(0.5)
         loss_tag.next_to(net, DOWN, buff=0.3)
         self.add_fixed_in_frame_mobjects(loss_tag)
         self.play(GrowFromPoint(vec, ball_center(MU_P)),
-                  FadeIn(dot, scale=0.5), FadeIn(w_lab),
-                  FadeIn(loss_tag), run_time=1.2)
-        self.play(Indicate(dot, color=Q_COLOR, scale_factor=1.6), run_time=0.8)
-        self.wait(0.5)
+                  FadeIn(dot, scale=0.5), FadeIn(w_lab), FadeIn(loss_tag),
+                  run_time=1.1)
 
-        # SYNCED TRAINING: edges reshape (left) while the weight vector drifts
-        # away from where it started (right), tracing its path in weight space.
         start = dot.get_center()
-        target = ball_center(MU_DRIFT)
-        trail = TracedPath(dot.get_center, stroke_color=Q_COLOR,
-                           stroke_width=3, stroke_opacity=0.6)
-        self.add(trail)
-        self.play(FadeOut(vec), run_time=0.4)   # vector shown; the path takes over
+        target = ball_center(C_WELL)
+        path = VMobject()
+        path.set_points_smoothly([
+            start,
+            start * 0.6 + target * 0.4 + np.array([0.0, -1.0, 0.7]),
+            start * 0.2 + target * 0.8 + np.array([0.0, 0.6, -0.4]),
+            target,
+        ])
+        learn_path = VGroup()
+        self.play(FadeOut(vec), run_time=0.3)
         rng = np.random.default_rng(3)
         steps = [1.10, 0.62, 0.31]
+        prev_f = 0.0
         for i, lv in enumerate(steps):
-            new_tag = MathTex(rf"L = {lv:.2f}", color=TEXT_COLOR).scale(0.5)
-            new_tag.move_to(loss_tag)
+            f = (i + 1) / len(steps)
+            seg = VMobject()
+            seg.pointwise_become_partial(path, prev_f, f)
+            seg_dashed = DashedVMobject(seg, num_dashes=11)\
+                .set_stroke(color=Q_COLOR, width=3, opacity=0.9)
+            new_tag = MathTex(rf"\mathcal{{L}} = {lv:.2f}", color=TEXT_COLOR)\
+                .scale(0.5).move_to(loss_tag)
             self.add_fixed_in_frame_mobjects(new_tag)
-            frac = (i + 1) / len(steps)
-            via = start * (1 - frac) + target * frac
-            self.play(*retrain_edges(weights, rng, scale=0.6 + 0.5 * frac),
-                      dot.animate.move_to(via),
-                      ReplacementTransform(loss_tag, new_tag), run_time=1.5)
+            self.play(*retrain_edges(weights, rng, scale=0.6 + 0.5 * f),
+                      MoveAlongPath(dot, seg), Create(seg_dashed),
+                      ReplacementTransform(loss_tag, new_tag), run_time=1.4)
             loss_tag = new_tag
+            learn_path.add(seg_dashed)
+            prev_f = f
 
-        # the mean-shift segment + label
         shift_line = DashedLine(ball_center(MU_P), target,
-                                color=MEAN_TERM_COLOR, stroke_width=3)
-        shift_lab = MathTex(r"\|\mu_Q-\mu_P\|", color=MEAN_TERM_COLOR).scale(0.55)
+                                color=SHIFT_COLOR, stroke_width=3)
+        shift_lab = MathTex(r"\|\mu_Q-\mu_P\|", color=SHIFT_COLOR).scale(0.5)
         shift_lab.to_corner(UR, buff=0.3).shift(DOWN * 1.15)
         self.add_fixed_in_frame_mobjects(shift_lab)
-        self.play(Create(shift_line), FadeIn(shift_lab), run_time=1.0)
-        self.wait(0.6)
+        self.play(Create(shift_line), FadeIn(shift_lab), run_time=0.9)
+        self.wait(0.4)
 
-        # drop the network; relabel the left panel for the loss view
-        new_title_L = Text("Loss + ε  (1-D weight slice)", color=TEXT_COLOR,
+        new_title_L = Text("Loss landscape  (1-D slice)", color=TEXT_COLOR,
                            weight=BOLD).scale(0.36).to_corner(UL, buff=0.3)
         self.add_fixed_in_frame_mobjects(new_title_L)
         self.play(FadeOut(edges), FadeOut(nodes), FadeOut(loss_tag),
-                  FadeOut(shift_line), FadeOut(shift_lab), FadeOut(trail),
+                  FadeOut(shift_line), FadeOut(shift_lab), FadeOut(learn_path),
                   FadeOut(w_lab),
                   ReplacementTransform(title_L, new_title_L), run_time=1.0)
 
         # =================================================================
-        # ACT 4 -- loss landscape (LEFT) appears
+        # ACT 2 -- the well + its curvature (Hessian)
         # =================================================================
-        plot, plot_group = make_loss_plot()
-        plot_group.shift(LEFT * 3.4 + UP * 0.15)
-        self.add_fixed_in_frame_mobjects(plot_group)
-        self.play(FadeIn(plot_group), run_time=1.1)
+        s_t = ValueTracker(S_FLAT)               # well width -> curvature
+        eps_t = ValueTracker(EPS_START)          # tolerance on L(Q)-L(theta_f)
+
+        plot, axes_grp = make_axes()
+        axes_grp.shift(LEFT * 3.4 + UP * 0.15)
+        self.add_fixed_in_frame_mobjects(axes_grp)
+
+        curve = always_redraw(lambda: loss_curve(plot, s_t.get_value()))
+        self.add_fixed_in_frame_mobjects(curve)
+        self.play(FadeIn(axes_grp), Create(curve), run_time=1.1)
+
+        thf_dot = Dot(plot.c2p(C_WELL, L_MIN), radius=0.055, color=TEXT_COLOR)
+        thf_lab = MathTex(r"\theta_f", color=TEXT_COLOR).scale(0.5)\
+            .next_to(thf_dot, DOWN, buff=0.08)
+        self.add_fixed_in_frame_mobjects(thf_dot, thf_lab)
+        self.play(FadeIn(thf_dot), FadeIn(thf_lab), run_time=0.6)
+
+        # the osculating parabola: its curvature is the Hessian H
+        parab = always_redraw(lambda: parab_curve(plot, s_t.get_value()))
+        self.add_fixed_in_frame_mobjects(parab)
+        hess_lbl = MathTex(r"H=\nabla^2 \mathcal{L}(\theta_f)=", color=HESS_COLOR)\
+            .scale(0.44).move_to(np.array([-5.5, 2.98, 0.0]))
+        hess_num = always_redraw(lambda: DecimalNumber(
+            hessian(s_t.get_value()), num_decimal_places=2, color=HESS_COLOR)
+            .scale(0.44).next_to(hess_lbl, RIGHT, buff=0.08))
+        self.add_fixed_in_frame_mobjects(hess_lbl, hess_num)
+        self.play(Create(parab), FadeIn(hess_lbl), FadeIn(hess_num), run_time=1.1)
         self.wait(0.4)
 
         # =================================================================
-        # ACT 5 -- the CLOSED-FORM Gaussian posterior in each well.
-        #          Curvature a = L''(w*) sets sigma_Q via precision-addition;
-        #          flat -> wide Q -> small KL, sharp -> narrow Q -> big KL.
+        # ACT 3 -- the budget epsilon (gap between L(theta_f) and L(Q)) and Q
         # =================================================================
-        sig_flat = sigma_closed_form(A_FLAT)
-        sig_sharp = sigma_closed_form(A_SHARP)
-        kl_flat_v = kl_total(C_FLAT, sig_flat)
-        kl_sharp_v = kl_total(C_SHARP, sig_sharp)
+        # the two loss LEVELS and the epsilon gap between them
+        lf_level = DashedLine(plot.c2p(W_MIN, L_MIN), plot.c2p(W_MAX, L_MIN),
+                              color=GREY_B, stroke_width=1.6).set_opacity(0.7)
+        lf_lab = MathTex(r"\mathcal{L}(\theta_f)", color=TEXT_COLOR).scale(0.4)\
+            .next_to(plot.c2p(W_MAX, L_MIN), UR, buff=0.04)
+        lq_level = always_redraw(lambda: DashedLine(
+            plot.c2p(W_MIN, L_MIN + eps_t.get_value()),
+            plot.c2p(W_MAX, L_MIN + eps_t.get_value()),
+            color=BUDGET_COLOR, stroke_width=2.6))
+        lq_lab = always_redraw(lambda: MathTex(
+            r"\mathcal{L}(Q)=\mathbb{E}_{\theta\sim Q}[\mathcal{L}(\theta)]",
+            color=BUDGET_COLOR).scale(0.4)
+            .next_to(plot.c2p(W_MAX, L_MIN + eps_t.get_value()), UL, buff=0.05))
+        theta_b = -3.6
+        eps_arrow = always_redraw(lambda: DoubleArrow(
+            plot.c2p(theta_b, L_MIN),
+            plot.c2p(theta_b, L_MIN + eps_t.get_value()),
+            color=BUDGET_COLOR, stroke_width=3, buff=0, tip_length=0.13,
+            max_tip_length_to_length_ratio=0.4))
+        eps_lab = always_redraw(lambda: MathTex(r"\varepsilon", color=BUDGET_COLOR)
+                                .scale(0.55).next_to(eps_arrow, LEFT, buff=0.08))
+        self.add_fixed_in_frame_mobjects(lf_level, lf_lab, lq_level, lq_lab,
+                                         eps_arrow, eps_lab)
+        self.play(FadeIn(lf_level), FadeIn(lf_lab), run_time=0.5)
+        self.play(Create(lq_level), FadeIn(lq_lab),
+                  GrowFromPoint(eps_arrow, plot.c2p(theta_b, L_MIN)),
+                  FadeIn(eps_lab), run_time=1.0)
+        self.wait(0.4)
 
-        # LEFT: the two closed-form bells on the loss curve
-        flat_bell = make_bell(plot, C_FLAT, sig_flat, Q_FLAT_COLOR, opacity=0.35)
-        sharp_bell = make_bell(plot, C_SHARP, sig_sharp, Q_SHARP_COLOR, opacity=0.35)
-        self.add_fixed_in_frame_mobjects(flat_bell, sharp_bell)
+        # prior + posterior bells
+        p_bell = make_bell(plot, MU_P, SIGMA_P, P_COLOR, opacity=0.20)
+        p_bell_lab = MathTex("P", color=P_COLOR).scale(0.55)\
+            .move_to(plot.c2p(MU_P, 0) + np.array([-0.55, 0.5, 0.0]))
+        q_bell = always_redraw(lambda: make_bell(
+            plot, C_WELL, sigma_q(s_t.get_value(), eps_t.get_value()),
+            Q_COLOR, opacity=0.4))
+        q_bell_lab = MathTex("Q", color=Q_COLOR).scale(0.55)\
+            .move_to(plot.c2p(C_WELL, 0) + np.array([0.55, 0.7, 0.0]))
+        self.add_fixed_in_frame_mobjects(p_bell, p_bell_lab, q_bell, q_bell_lab)
 
-        # the closed-form rule, fixed top-centre
-        cf = MathTex(r"\frac{1}{\sigma_Q^2}=\frac{1}{\sigma_P^2}+"
-                     r"\frac{a}{\beta}\quad(a=L''(w^*))",
-                     color=TEXT_COLOR).scale(0.5).move_to(np.array([-0.4, 2.9, 0.0]))
-        self.add_fixed_in_frame_mobjects(cf)
+        # RIGHT: prior round ball; posterior Q a ball that rescales in ALL dims
+        q_ball = make_ball(C_WELL, sigma_q(s_t.get_value(), eps_t.get_value()),
+                           Q_COLOR, 0.5)
+        q_ball_lab = Text("posterior Q", color=Q_COLOR, weight=BOLD).scale(0.3)
+        q_ball_lab.to_corner(UR, buff=0.3).shift(DOWN * 0.95)
 
-        # RIGHT: the two Q balls (closed-form widths) beside the prior P
-        sharp_ball = make_ball(C_SHARP, sig_sharp, Q_SHARP_COLOR, 0.5)
-        flat_ball = make_ball(C_FLAT, sig_flat, Q_FLAT_COLOR, 0.5)
+        # objective + closed-form posterior (whiteboard notation)
+        obj_pen = MathTex(
+            r"\min_Q\ \mathbb{E}_{\theta\sim Q}[\mathcal{L}(\theta)] + \beta\, \mathrm{KL}(Q,P)",
+            substrings_to_isolate=[r"\mathrm{KL}(Q,P)"], color=TEXT_COLOR).scale(0.46)
+        obj_pen.set_color_by_tex(r"\mathrm{KL}(Q,P)", KL_COLOR)
+        obj_con = MathTex(
+            r"\Longleftrightarrow\ \min_Q \mathrm{KL}(Q,P)\ \ \text{s.t.}\ \ "
+            r"\big|\mathcal{L}(Q)-\mathcal{L}(\theta_f)\big|\le\varepsilon",
+            substrings_to_isolate=[r"\mathrm{KL}(Q,P)", r"\varepsilon"],
+            color=TEXT_COLOR).scale(0.4)
+        obj_con.set_color_by_tex(r"\mathrm{KL}(Q,P)", KL_COLOR)
+        obj_con.set_color_by_tex(r"\varepsilon", BUDGET_COLOR)
+        obj_sol = MathTex(
+            r"P=\mathcal{N}(0,\sigma^2 I_d),\quad "
+            r"Q=\mathcal{N}\!\Big(\theta_f,\ \tfrac{\beta}{2}\big(H+\tfrac{\beta}{2}I_d\big)^{-1}\Big)",
+            substrings_to_isolate=[r"H"], color=TEXT_COLOR).scale(0.36)
+        obj_sol.set_color_by_tex(r"H", HESS_COLOR)
+        obj = VGroup(obj_pen, obj_con, obj_sol).arrange(DOWN, buff=0.12)\
+            .move_to(np.array([-0.1, 3.05, 0.0]))
+        self.add_fixed_in_frame_mobjects(obj)
 
-        # static KL readouts (Q is fixed now -- KL no longer depends on eps)
-        sharp_kl = MathTex(rf"\mathrm{{KL}}_{{\text{{sharp}}}}={kl_sharp_v:.2f}",
-                           color=Q_SHARP_COLOR).scale(0.5)
-        flat_kl = MathTex(rf"\mathrm{{KL}}_{{\text{{flat}}}}={kl_flat_v:.2f}",
-                          color=Q_FLAT_COLOR).scale(0.5)
-        VGroup(sharp_kl, flat_kl).arrange(DOWN, aligned_edge=LEFT, buff=0.18)\
-            .move_to(np.array([2.75, 2.45, 0.0]))
-        self.add_fixed_in_frame_mobjects(sharp_kl, flat_kl)
+        kl_lbl = MathTex(r"\mathrm{KL}(Q,P)=", color=KL_COLOR).scale(0.5)\
+            .move_to(np.array([2.0, 2.25, 0.0]))
+        kl_num = always_redraw(lambda: DecimalNumber(
+            kl_info(sigma_q(s_t.get_value(), eps_t.get_value())),
+            num_decimal_places=2, color=KL_COLOR)
+            .scale(0.5).next_to(kl_lbl, RIGHT, buff=0.08))
+        kl_unit = MathTex(r"\text{nats}", color=KL_COLOR).scale(0.4)\
+            .next_to(kl_num, RIGHT, buff=0.12)
+        self.add_fixed_in_frame_mobjects(kl_lbl, kl_num, kl_unit, q_ball_lab)
 
-        self.play(ReplacementTransform(dot, sharp_ball), FadeIn(flat_ball),
-                  FadeIn(flat_bell), FadeIn(sharp_bell), FadeIn(cf),
-                  FadeIn(sharp_kl), FadeIn(flat_kl), run_time=1.5)
-        self.wait(1.2)
-
-        # =================================================================
-        # ACT 6 -- the certified test-train gap, and the budget eps ON IT.
-        #          gap = sqrt(KL / 2(n-1)) ~ sqrt(KL); we require gap <= eps.
-        # =================================================================
-        gap_flat = cert_gap(kl_flat_v)
-        gap_sharp = cert_gap(kl_sharp_v)
-        eps_t = ValueTracker(0.80)        # the gap budget (animated)
-
-        bound = MathTex(
-            r"\mathbb{E}_Q\!\big[L_{\text{test}}-L_{\text{train}}\big]\le"
-            r"\sqrt{\tfrac{D_{KL}(Q\|P)}{2(n-1)}}\le\varepsilon",
-            substrings_to_isolate=[r"D_{KL}(Q\|P)", r"\varepsilon"],
-            color=TEXT_COLOR).scale(0.5)
-        bound.set_color_by_tex(r"D_{KL}(Q\|P)", PURPLE_D)
-        bound.set_color_by_tex(r"\varepsilon", BUDGET_COLOR)
-        bound.move_to(np.array([0.0, -2.05, 0.0]))
-        self.add_fixed_in_frame_mobjects(bound)
-
-        # a horizontal gauge for the gap, with two bars and the eps threshold
-        GAPMAX = 1.15
-        gap_axis = NumberLine(x_range=[0, GAPMAX, 0.25], length=5.0,
-                              color=GREY_C, stroke_width=2, include_ticks=False)
-        gap_axis.move_to(np.array([0.75, -3.08, 0.0]))
-
-        def bar(value, color, y_off):
-            return Line(gap_axis.n2p(0), gap_axis.n2p(value), color=color,
-                        stroke_width=9).set_opacity(0.85).shift(UP * y_off)
-        sharp_bar = bar(gap_sharp, Q_SHARP_COLOR, 0.17)
-        flat_bar = bar(gap_flat, Q_FLAT_COLOR, -0.17)
-        # row labels in a fixed LEFT column (at each bar's start)
-        sharp_tag = Text("sharp Q", color=Q_SHARP_COLOR).scale(0.26)\
-            .next_to(sharp_bar.get_start(), LEFT, buff=0.2)
-        flat_tag = Text("flat Q", color=Q_FLAT_COLOR).scale(0.26)\
-            .next_to(flat_bar.get_start(), LEFT, buff=0.2)
-
-        eps_rule = always_redraw(lambda: DashedLine(
-            gap_axis.n2p(eps_t.get_value()) + UP * 0.36,
-            gap_axis.n2p(eps_t.get_value()) + DOWN * 0.36,
-            color=BUDGET_COLOR, stroke_width=3))
-        eps_tag = always_redraw(lambda: VGroup(
-            MathTex(r"\varepsilon=", color=BUDGET_COLOR).scale(0.45),
-            DecimalNumber(eps_t.get_value(), num_decimal_places=2,
-                          color=BUDGET_COLOR).scale(0.45)
-        ).arrange(RIGHT, buff=0.07).next_to(
-            gap_axis.n2p(eps_t.get_value()) + UP * 0.36, UP, buff=0.06))
-
-        # pass/fail ticks in a fixed RIGHT column, updating live as eps sweeps
-        right_x = gap_axis.n2p(GAPMAX)[0] + 0.5
-
-        def verdict(gap_val, y_ref):
-            ok = gap_val <= eps_t.get_value()
-            return Text("✓" if ok else "✗", color=GREEN_E if ok else RED_E,
-                        weight=BOLD).scale(0.42)\
-                .move_to(np.array([right_x, y_ref, 0.0]))
-        sharp_mark = always_redraw(lambda: verdict(gap_sharp,
-                                                   sharp_bar.get_center()[1]))
-        flat_mark = always_redraw(lambda: verdict(gap_flat,
-                                                  flat_bar.get_center()[1]))
-
-        gauge = (gap_axis, sharp_bar, flat_bar, sharp_tag, flat_tag,
-                 eps_rule, eps_tag, sharp_mark, flat_mark)
-        for m in gauge:
-            self.add_fixed_in_frame_mobjects(m)
-
-        self.play(FadeIn(bound), run_time=1.0)
-        self.play(FadeIn(gap_axis),
-                  GrowFromPoint(flat_bar, gap_axis.n2p(0)),
-                  GrowFromPoint(sharp_bar, gap_axis.n2p(0)),
-                  FadeIn(flat_tag), FadeIn(sharp_tag),
-                  FadeIn(eps_rule), FadeIn(eps_tag),
-                  FadeIn(sharp_mark), FadeIn(flat_mark), run_time=1.4)
+        self.play(ReplacementTransform(dot, q_ball), FadeIn(q_ball_lab),
+                  FadeIn(p_bell), FadeIn(p_bell_lab),
+                  FadeIn(q_bell), FadeIn(q_bell_lab),
+                  FadeIn(obj), FadeIn(kl_lbl), FadeIn(kl_num), FadeIn(kl_unit),
+                  run_time=1.5)
         self.wait(0.8)
 
-        # sweep the budget: high (both pass) -> mid (only flat) -> low (both fail)
-        self.play(eps_t.animate.set_value(1.10), run_time=1.8)   # both fit
-        self.wait(0.7)
-        self.play(eps_t.animate.set_value(0.50), run_time=2.0)   # neither fits
-        self.wait(0.7)
-        self.play(eps_t.animate.set_value(0.80), run_time=1.8)   # only flat fits
-        self.wait(2.0)
+        def caption(text: str) -> Text:
+            return Text(text, color=TEXT_COLOR).scale(0.29)\
+                .move_to(np.array([0.0, -2.55, 0.0]))
+
+        cap = caption("epsilon = how far above the minimum the expected loss L(Q) may sit.")
+        self.add_fixed_in_frame_mobjects(cap)
+        self.play(FadeIn(cap), run_time=0.7)
+        self.wait(0.6)
+
+        # =================================================================
+        # ACT 4a -- MORPH curvature flat <-> sharp at FIXED epsilon.
+        #           Q rescales in ALL dims on the right; KL tracks H.
+        # =================================================================
+        cap2 = caption("Same epsilon, SHARPER well: bigger H, Q pinned tight, more information.")
+        self.add_fixed_in_frame_mobjects(cap2)
+        b_sharp = make_ball(C_WELL, sigma_q(S_SHARP, eps_t.get_value()), Q_COLOR, 0.5)
+        self.play(s_t.animate.set_value(S_SHARP), Transform(q_ball, b_sharp),
+                  ReplacementTransform(cap, cap2), run_time=2.4)
+        self.wait(1.1)
+
+        cap3 = caption("Same epsilon, FLATTER well: smaller H, Q stays broad, little information.")
+        self.add_fixed_in_frame_mobjects(cap3)
+        b_flat = make_ball(C_WELL, sigma_q(S_FLAT, eps_t.get_value()), Q_COLOR, 0.5)
+        self.play(s_t.animate.set_value(S_FLAT), Transform(q_ball, b_flat),
+                  ReplacementTransform(cap2, cap3), run_time=2.4)
+        self.wait(1.1)
+
+        b_mid = make_ball(C_WELL, sigma_q(S_MID, eps_t.get_value()), Q_COLOR, 0.5)
+        self.play(s_t.animate.set_value(S_MID), Transform(q_ball, b_mid),
+                  run_time=1.4)
+        self.wait(0.4)
+
+        # =================================================================
+        # ACT 4b -- SWEEP epsilon at FIXED curvature.  The L(Q) level moves;
+        #           a looser budget lets Q widen (lower KL), tighter shrinks it.
+        # =================================================================
+        cap4 = caption("Fix the well, loosen epsilon: L(Q) rises, Q can widen, KL falls.")
+        self.add_fixed_in_frame_mobjects(cap4)
+        b_loose = make_ball(C_WELL, sigma_q(S_MID, 1.8), Q_COLOR, 0.5)
+        self.play(eps_t.animate.set_value(1.8), Transform(q_ball, b_loose),
+                  ReplacementTransform(cap3, cap4), run_time=2.2)
+        self.wait(1.0)
+
+        cap5 = caption("Tighten epsilon: L(Q) drops toward the minimum, Q is forced narrow, KL rises.")
+        self.add_fixed_in_frame_mobjects(cap5)
+        b_tight = make_ball(C_WELL, sigma_q(S_MID, 0.6), Q_COLOR, 0.5)
+        self.play(eps_t.animate.set_value(0.6), Transform(q_ball, b_tight),
+                  ReplacementTransform(cap4, cap5), run_time=2.2)
+        self.wait(1.0)
+
+        b_back = make_ball(C_WELL, sigma_q(S_MID, EPS_START), Q_COLOR, 0.5)
+        self.play(eps_t.animate.set_value(EPS_START), Transform(q_ball, b_back),
+                  run_time=1.4)
+        self.wait(0.4)
+
+        # =================================================================
+        # ACT 5 -- the payoff: min KL = least information = best generalisation
+        # =================================================================
+        bound = MathTex(
+            r"\mathbb{E}_Q[\mathcal{L}_{\text{test}}]\le \mathbb{E}_Q[\mathcal{L}_{\text{train}}]+"
+            r"\sqrt{\tfrac{\mathrm{KL}(Q,P)+\ln\frac{1}{\delta}}{2n}}",
+            substrings_to_isolate=[r"\mathrm{KL}(Q,P)"], color=TEXT_COLOR).scale(0.5)
+        bound.set_color_by_tex(r"\mathrm{KL}(Q,P)", KL_COLOR)
+        bound.move_to(np.array([0.0, -3.15, 0.0]))
+        punch = caption("min KL  =  least information beyond P  =  flattest fit  =  tightest bound")
+        self.add_fixed_in_frame_mobjects(bound, punch)
+        self.play(ReplacementTransform(cap5, punch), FadeIn(bound), run_time=1.2)
+        self.wait(1.6)
