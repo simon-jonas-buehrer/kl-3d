@@ -31,5 +31,6 @@ PATH = "/usr/pack/texlive-2025-sr/2025/bin/x86_64-linux:$PATH"
 # ---------------------------------------------------------------------------
 
 [tool.pixi.tasks]
-render    = "manim -ql kl_3d.py KLTranslation KLScaling KLCombined"
-render-hq = "manim -qh kl_3d.py KLTranslation KLScaling KLCombined"
+render    = "manim -ql kl_3d.py KLStory"
+render-hq = "manim -qh kl_3d.py KLStory"
+smoke     = "manim -s -ql kl_3d.py KLStory"
