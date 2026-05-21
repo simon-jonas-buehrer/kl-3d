@@ -128,7 +128,7 @@ def kl_info(sigma: float) -> float:
 def make_axes() -> tuple[Axes, VGroup]:
     plot = Axes(
         x_range=[W_MIN, W_MAX, 1.5], y_range=[0, L_MAX, 1.0],
-        x_length=5.4, y_length=3.3,
+        x_length=5.7, y_length=3.6,
         axis_config={"include_tip": False, "color": AXIS_COLOR, "stroke_width": 1.6},
     )
     x_lab = plot.get_x_axis_label(MathTex(r"\theta", color=TEXT_COLOR).scale(0.7),
@@ -168,8 +168,8 @@ def make_bell(plot: Axes, mu: float, sigma: float, color, *,
 # ---------------------------------------------------------------------------
 
 BALL_ORIGIN = np.array([4.3, 0.0, 0.0])
-POS_SCALE = 0.68
-RAD_SCALE = 0.82
+POS_SCALE = 0.45               # gentle mean shift, so Q stays nested inside P
+RAD_SCALE = 0.98
 
 
 def ball_center(mu: float) -> np.ndarray:
@@ -178,10 +178,10 @@ def ball_center(mu: float) -> np.ndarray:
 
 def make_ball(mu: float, sigma: float, color, opacity: float) -> Surface:
     """An isotropic ball of radius sigma (a 1-D slice privileges no axis, so Q
-    scales the SAME in every weight-space dimension)."""
-    s = Sphere(center=ball_center(mu), radius=sigma * RAD_SCALE, resolution=(24, 24))
-    s.set_style(fill_opacity=opacity, stroke_width=0.25,
-                stroke_color=color, stroke_opacity=0.4)
+    scales the SAME in every weight-space dimension).  Soft fill, light mesh."""
+    s = Sphere(center=ball_center(mu), radius=sigma * RAD_SCALE, resolution=(16, 16))
+    s.set_style(fill_opacity=opacity, stroke_width=0.2,
+                stroke_color=color, stroke_opacity=0.22)
     s.set_fill(color, opacity=opacity)
     return s
 
@@ -291,12 +291,16 @@ class KLStory(ThreeDScene):
         w_lab = MathTex(r"\theta \sim P", color=Q_COLOR).scale(0.5)
         w_lab.to_corner(UR, buff=0.3).shift(DOWN * 1.55)
         self.add_fixed_in_frame_mobjects(w_lab)
-        loss_tag = MathTex(r"\mathcal{L} = 1.80", color=TEXT_COLOR).scale(0.5)
-        loss_tag.next_to(net, DOWN, buff=0.3)
-        self.add_fixed_in_frame_mobjects(loss_tag)
+        loss_lab = MathTex(r"\mathcal{L} =", color=TEXT_COLOR).scale(0.5)
+        loss_lab.next_to(net, DOWN, buff=0.3).shift(LEFT * 0.32)
+        loss_vt = ValueTracker(1.80)
+        loss_num = always_redraw(lambda: DecimalNumber(
+            loss_vt.get_value(), num_decimal_places=2, color=TEXT_COLOR)
+            .scale(0.5).next_to(loss_lab, RIGHT, buff=0.1))
+        self.add_fixed_in_frame_mobjects(loss_lab, loss_num)
         self.play(GrowFromPoint(vec, ball_center(MU_P)),
-                  FadeIn(dot, scale=0.5), FadeIn(w_lab), FadeIn(loss_tag),
-                  run_time=1.1)
+                  FadeIn(dot, scale=0.5), FadeIn(w_lab),
+                  FadeIn(loss_lab), FadeIn(loss_num), run_time=1.1)
 
         start = dot.get_center()
         target = ball_center(C_WELL)
@@ -318,13 +322,9 @@ class KLStory(ThreeDScene):
             seg.pointwise_become_partial(path, prev_f, f)
             seg_dashed = DashedVMobject(seg, num_dashes=11)\
                 .set_stroke(color=Q_COLOR, width=3, opacity=0.9)
-            new_tag = MathTex(rf"\mathcal{{L}} = {lv:.2f}", color=TEXT_COLOR)\
-                .scale(0.5).move_to(loss_tag)
-            self.add_fixed_in_frame_mobjects(new_tag)
             self.play(*retrain_edges(weights, rng, scale=0.6 + 0.5 * f),
                       MoveAlongPath(dot, seg), Create(seg_dashed),
-                      ReplacementTransform(loss_tag, new_tag), run_time=1.4)
-            loss_tag = new_tag
+                      loss_vt.animate.set_value(lv), run_time=1.4)
             learn_path.add(seg_dashed)
             prev_f = f
 
@@ -339,10 +339,11 @@ class KLStory(ThreeDScene):
         new_title_L = Text("Loss landscape  (1-D slice)", color=TEXT_COLOR,
                            weight=BOLD).scale(0.36).to_corner(UL, buff=0.3)
         self.add_fixed_in_frame_mobjects(new_title_L)
-        self.play(FadeOut(edges), FadeOut(nodes), FadeOut(loss_tag),
+        self.play(FadeOut(edges), FadeOut(nodes),
+                  FadeOut(loss_lab), FadeOut(loss_num),
                   FadeOut(shift_line), FadeOut(shift_lab), FadeOut(learn_path),
                   FadeOut(w_lab),
-                  ReplacementTransform(title_L, new_title_L), run_time=1.0)
+                  FadeOut(title_L), FadeIn(new_title_L), run_time=1.0)
 
         # =================================================================
         # ACT 2 -- the well + its curvature (Hessian)
@@ -383,15 +384,15 @@ class KLStory(ThreeDScene):
         lf_level = DashedLine(plot.c2p(W_MIN, L_MIN), plot.c2p(W_MAX, L_MIN),
                               color=GREY_B, stroke_width=1.6).set_opacity(0.7)
         lf_lab = MathTex(r"\mathcal{L}(\theta_f)", color=TEXT_COLOR).scale(0.4)\
-            .next_to(plot.c2p(W_MAX, L_MIN), UR, buff=0.04)
+            .next_to(plot.c2p(3.7, L_MIN), UP, buff=0.05)
         lq_level = always_redraw(lambda: DashedLine(
             plot.c2p(W_MIN, L_MIN + eps_t.get_value()),
             plot.c2p(W_MAX, L_MIN + eps_t.get_value()),
             color=BUDGET_COLOR, stroke_width=2.6))
-        lq_lab = always_redraw(lambda: MathTex(
-            r"\mathcal{L}(Q)=\mathbb{E}_{\theta\sim Q}[\mathcal{L}(\theta)]",
-            color=BUDGET_COLOR).scale(0.4)
-            .next_to(plot.c2p(W_MAX, L_MIN + eps_t.get_value()), UL, buff=0.05))
+        lq_lab = always_redraw(lambda: MathTex(r"\mathcal{L}(Q)", color=BUDGET_COLOR)
+            .scale(0.44)
+            .next_to(plot.c2p(W_MIN, L_MIN + eps_t.get_value()), UP, buff=0.06)
+            .shift(RIGHT * 0.25))
         theta_b = -3.6
         eps_arrow = always_redraw(lambda: DoubleArrow(
             plot.c2p(theta_b, L_MIN),
@@ -440,20 +441,20 @@ class KLStory(ThreeDScene):
         obj_sol = MathTex(
             r"P=\mathcal{N}(0,\sigma^2 I_d),\quad "
             r"Q=\mathcal{N}\!\Big(\theta_f,\ \tfrac{\beta}{2}\big(H+\tfrac{\beta}{2}I_d\big)^{-1}\Big)",
-            substrings_to_isolate=[r"H"], color=TEXT_COLOR).scale(0.36)
+            substrings_to_isolate=[r"H"], color=TEXT_COLOR).scale(0.39)
         obj_sol.set_color_by_tex(r"H", HESS_COLOR)
-        obj = VGroup(obj_pen, obj_con, obj_sol).arrange(DOWN, buff=0.12)\
-            .move_to(np.array([-0.1, 3.05, 0.0]))
+        obj = VGroup(obj_pen, obj_con, obj_sol).arrange(DOWN, buff=0.075)\
+            .move_to(np.array([-0.1, 3.0, 0.0]))
         self.add_fixed_in_frame_mobjects(obj)
 
         kl_lbl = MathTex(r"\mathrm{KL}(Q,P)=", color=KL_COLOR).scale(0.5)\
-            .move_to(np.array([2.0, 2.25, 0.0]))
+            .move_to(np.array([3.7, -2.45, 0.0]))
         kl_num = always_redraw(lambda: DecimalNumber(
             kl_info(sigma_q(s_t.get_value(), eps_t.get_value())),
             num_decimal_places=2, color=KL_COLOR)
-            .scale(0.5).next_to(kl_lbl, RIGHT, buff=0.08))
-        kl_unit = MathTex(r"\text{nats}", color=KL_COLOR).scale(0.4)\
-            .next_to(kl_num, RIGHT, buff=0.12)
+            .scale(0.5).next_to(kl_lbl, RIGHT, buff=0.1))
+        kl_unit = always_redraw(lambda: MathTex(r"\text{nats}", color=KL_COLOR)
+            .scale(0.42).next_to(kl_num, RIGHT, buff=0.22))
         self.add_fixed_in_frame_mobjects(kl_lbl, kl_num, kl_unit, q_ball_lab)
 
         self.play(ReplacementTransform(dot, q_ball), FadeIn(q_ball_lab),
@@ -461,33 +462,20 @@ class KLStory(ThreeDScene):
                   FadeIn(q_bell), FadeIn(q_bell_lab),
                   FadeIn(obj), FadeIn(kl_lbl), FadeIn(kl_num), FadeIn(kl_unit),
                   run_time=1.5)
-        self.wait(0.8)
-
-        def caption(text: str) -> Text:
-            return Text(text, color=TEXT_COLOR).scale(0.29)\
-                .move_to(np.array([0.0, -2.55, 0.0]))
-
-        cap = caption("epsilon = how far above the minimum the expected loss L(Q) may sit.")
-        self.add_fixed_in_frame_mobjects(cap)
-        self.play(FadeIn(cap), run_time=0.7)
-        self.wait(0.6)
+        self.wait(1.0)
 
         # =================================================================
         # ACT 4a -- MORPH curvature flat <-> sharp at FIXED epsilon.
         #           Q rescales in ALL dims on the right; KL tracks H.
         # =================================================================
-        cap2 = caption("Same epsilon, SHARPER well: bigger H, Q pinned tight, more information.")
-        self.add_fixed_in_frame_mobjects(cap2)
         b_sharp = make_ball(C_WELL, sigma_q(S_SHARP, eps_t.get_value()), Q_COLOR, 0.5)
         self.play(s_t.animate.set_value(S_SHARP), Transform(q_ball, b_sharp),
-                  ReplacementTransform(cap, cap2), run_time=2.4)
+                  run_time=2.4)
         self.wait(1.1)
 
-        cap3 = caption("Same epsilon, FLATTER well: smaller H, Q stays broad, little information.")
-        self.add_fixed_in_frame_mobjects(cap3)
         b_flat = make_ball(C_WELL, sigma_q(S_FLAT, eps_t.get_value()), Q_COLOR, 0.5)
         self.play(s_t.animate.set_value(S_FLAT), Transform(q_ball, b_flat),
-                  ReplacementTransform(cap2, cap3), run_time=2.4)
+                  run_time=2.4)
         self.wait(1.1)
 
         b_mid = make_ball(C_WELL, sigma_q(S_MID, eps_t.get_value()), Q_COLOR, 0.5)
@@ -499,18 +487,14 @@ class KLStory(ThreeDScene):
         # ACT 4b -- SWEEP epsilon at FIXED curvature.  The L(Q) level moves;
         #           a looser budget lets Q widen (lower KL), tighter shrinks it.
         # =================================================================
-        cap4 = caption("Fix the well, loosen epsilon: L(Q) rises, Q can widen, KL falls.")
-        self.add_fixed_in_frame_mobjects(cap4)
         b_loose = make_ball(C_WELL, sigma_q(S_MID, 1.8), Q_COLOR, 0.5)
         self.play(eps_t.animate.set_value(1.8), Transform(q_ball, b_loose),
-                  ReplacementTransform(cap3, cap4), run_time=2.2)
+                  run_time=2.2)
         self.wait(1.0)
 
-        cap5 = caption("Tighten epsilon: L(Q) drops toward the minimum, Q is forced narrow, KL rises.")
-        self.add_fixed_in_frame_mobjects(cap5)
         b_tight = make_ball(C_WELL, sigma_q(S_MID, 0.6), Q_COLOR, 0.5)
         self.play(eps_t.animate.set_value(0.6), Transform(q_ball, b_tight),
-                  ReplacementTransform(cap4, cap5), run_time=2.2)
+                  run_time=2.2)
         self.wait(1.0)
 
         b_back = make_ball(C_WELL, sigma_q(S_MID, EPS_START), Q_COLOR, 0.5)
@@ -519,7 +503,7 @@ class KLStory(ThreeDScene):
         self.wait(0.4)
 
         # =================================================================
-        # ACT 5 -- the payoff: min KL = least information = best generalisation
+        # ACT 5 -- the payoff: the PAC-Bayes bound (KL is the complexity term)
         # =================================================================
         bound = MathTex(
             r"\mathbb{E}_Q[\mathcal{L}_{\text{test}}]\le \mathbb{E}_Q[\mathcal{L}_{\text{train}}]+"
@@ -527,7 +511,6 @@ class KLStory(ThreeDScene):
             substrings_to_isolate=[r"\mathrm{KL}(Q,P)"], color=TEXT_COLOR).scale(0.5)
         bound.set_color_by_tex(r"\mathrm{KL}(Q,P)", KL_COLOR)
         bound.move_to(np.array([0.0, -3.15, 0.0]))
-        punch = caption("min KL  =  least information beyond P  =  flattest fit  =  tightest bound")
-        self.add_fixed_in_frame_mobjects(bound, punch)
-        self.play(ReplacementTransform(cap5, punch), FadeIn(bound), run_time=1.2)
+        self.add_fixed_in_frame_mobjects(bound)
+        self.play(FadeIn(bound), run_time=1.2)
         self.wait(1.6)
