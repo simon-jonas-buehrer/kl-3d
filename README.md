@@ -1,40 +1,51 @@
 # KL in weight space (PAC-Bayes)
 
-A [Manim](https://www.manim.community/) animation showing the **machine-learning**
-meaning of $D_{KL}(Q\,\|\,P)$ — the PAC-Bayes complexity / generalization penalty —
-rather than the information-theory "extra nats" reading.
+A [Manim](https://www.manim.community/) animation for the **machine-learning**
+meaning of $\mathrm{KL}(Q,P)$: it is the **intrinsic information** a solution
+carries beyond the prior — the PAC-Bayes complexity / generalization penalty —
+and the **loss curvature (the Hessian)** is what sets it.
 
 The scene shows **two synced panels**:
 
-* **Left — loss + ε (a 2-D projection).** Training loss $L(w)$ along a 1-D weight
-  slice, with the budget line $z=\varepsilon$ and the feasible interval
-  $\{w : L(w)\le\varepsilon\}$ — **wide** in the flat well, **narrow** in the
-  sharp one. The posterior is drawn as a density **bell**; its sampled weights on
-  the loss curve turn **red** when they spill above $\varepsilon$.
-* **Right — weight space as 3-D balls.** Each Gaussian is a **ball** whose radius
-  is its spread: a big translucent **prior** $P$, and a **posterior** $Q$ that
-  starts as wide as $P$ and **shrinks to fit** the budget. $D_{KL}(Q\|P)$ is how
-  much smaller (and shifted) $Q$ is than $P$.
+* **Left — loss landscape (a 1-D weight slice).** The training loss
+  $\mathcal{L}(\theta)$, the trained minimiser $\theta_f$, and the **osculating
+  parabola** at $\theta_f$ whose curvature *is* the Hessian
+  $H=\nabla^2\mathcal{L}(\theta_f)$. The prior $P$ and posterior $Q$ are density
+  **bells**. The budget $\varepsilon$ caps the **expected** loss,
+  $|\mathcal{L}(Q)-\mathcal{L}(\theta_f)|\le\varepsilon$ with
+  $\mathcal{L}(Q)=\mathbb{E}_{\theta\sim Q}[\mathcal{L}(\theta)]$, drawn as the
+  **gap** between the $\mathcal{L}(\theta_f)$ and $\mathcal{L}(Q)$ levels.
+* **Right — weight space as 3-D balls.** A broad translucent **prior** $P$, and a
+  **posterior** $Q$ nested inside it that **rescales in every dimension** as the
+  curvature or the budget changes. How much smaller $Q$ is than $P$ — its shrunk
+  volume — is exactly the information $\mathrm{KL}(Q,P)$ measures.
 
-The two move together: as the posterior ball shrinks on the right, the bell
-narrows on the left and its samples come back under $\varepsilon$. Running this
-for each well gives:
+## The idea
 
-* **flat** minimum → tiny shrink → broad $Q\approx P$ → **low** $D_{KL}(Q\|P)$;
-* **sharp** minimum → big shrink → peaked $Q\ll P$ → **high** $D_{KL}(Q\|P)$.
+We minimise the penalised (Gibbs / variational) objective, equivalently a
+constrained one:
 
-Because $P$ is equidistant from both wells, the **teal** mean-shift term
-$\frac{\|\mu_Q-\mu_P\|^2}{2\sigma_P^2}$ is identical for both — the entire KL gap
-lives in the **gold** flatness / variance term
-$\frac{1}{2}[\frac{2\sigma_Q^2}{\sigma_P^2} - 2 + 2\ln\frac{\sigma_P^2}{\sigma_Q^2}]$.
+$$\min_Q\ \mathbb{E}_{\theta\sim Q}[\mathcal{L}(\theta)] + \beta\,\mathrm{KL}(Q,P)
+\quad\Longleftrightarrow\quad
+\min_Q \mathrm{KL}(Q,P)\ \ \text{s.t.}\ \ |\mathcal{L}(Q)-\mathcal{L}(\theta_f)|\le\varepsilon .$$
+
+For a locally-quadratic loss with prior $P=\mathcal{N}(0,\sigma^2 I_d)$ this has
+the closed form
+
+$$Q=\mathcal{N}\!\Big(\theta_f,\ \tfrac{\beta}{2}\big(H+\tfrac{\beta}{2}I_d\big)^{-1}\Big),
+\qquad H=\nabla^2\mathcal{L}(\theta_f),$$
+
+so the **posterior covariance is the inverse curvature**:
+
+* **flat** minimum (small $H$) → wide $Q\approx P$ → **low** $\mathrm{KL}$ → little information → **tight** bound → generalizes;
+* **sharp** minimum (large $H$) → narrow $Q$ → **high** $\mathrm{KL}$ → much information → **loose** bound.
 
 **The PAC-Bayes payoff.** That KL *is* the complexity penalty in the bound
 
-$$\mathbb{E}_Q[L_\text{test}] \;\le\; \underbrace{\mathbb{E}_Q[L_\text{train}]}_{\le\,\varepsilon} \;+\; \sqrt{\tfrac{D_{KL}(Q\|P) + \ln\frac1\delta}{2n}}.$$
+$$\mathbb{E}_Q[\mathcal{L}_\text{test}] \;\le\; \mathbb{E}_Q[\mathcal{L}_\text{train}] \;+\; \sqrt{\tfrac{\mathrm{KL}(Q,P) + \ln\frac1\delta}{2n}}.$$
 
-Since both wells share the same empirical loss, the bound is decided by KL alone:
-the flat (low-KL) posterior gets the **tighter test-loss guarantee** — it
-generalizes. That is the flat-minima ⇒ generalization story (Hochreiter &
+Minimising KL therefore means finding the **flattest, least-informative**
+posterior that still fits — the flat-minima ⇒ generalization story (Hochreiter &
 Schmidhuber; Keskar et al.; Dziugaite & Roy 2017; Blundell et al. 2015).
 
 ## The animation (`KLStory`)
@@ -42,25 +53,25 @@ Schmidhuber; Keskar et al.; Dziugaite & Roy 2017; Blundell et al. 2015).
 The `KLStory` scene plays the whole arc, from a network learning to the
 PAC-Bayes payoff:
 
-1. a small network **trains** (its edge weights change);
-2. those weights are **one point in weight space**, and the init is the broad
-   prior **ball $P$** (with its ~60% iso-density shell);
-3. training **drags the point away** from $P$ — the KL *mean-shift* term;
-4. drop the network, bring in the **loss landscape** and the **ε budget**;
-5. replace the point with a **posterior ball $Q$** grown to the budget
-   (sharp well, then flat);
-6. read off **KL = shift + shrink**;
-7. **PAC-Bayes payoff**: low KL ⇒ tighter bound ⇒ flat minima win.
+1. the **network** (left) and the **weight space** (right) appear together; a
+   weight vector $\theta\sim P$ is sampled from the broad prior **ball $P$**;
+2. the network **trains** (edge weights change, the loss ticks down) while that
+   vector **drifts** from the prior centre to $\theta_f$ — the KL *mean-shift*;
+3. the **loss landscape** with its minimiser $\theta_f$ and the **osculating
+   parabola** — the Hessian $H$, shown live;
+4. the **$\varepsilon$ budget** on the *expected* loss (the gap between
+   $\mathcal{L}(\theta_f)$ and $\mathcal{L}(Q)$) and the **curvature-shaped
+   posterior** $Q$ (a bell on the left, a ball on the right);
+5. **morph the curvature** flat↔sharp at fixed $\varepsilon$: $H$, $Q$ and
+   $\mathrm{KL}$ all move together;
+6. **sweep $\varepsilon$** at fixed curvature: the $\mathcal{L}(Q)$ level moves
+   and $Q$ resizes;
+7. the **PAC-Bayes bound** — $\mathrm{KL}$ is the complexity term.
 
 ![](videos/KLStory.gif)
 
-> The `.mp4` original (sharper, smaller) is next to the gif:
+> The `.mp4` original (sharper) is next to the gif:
 > [KLStory](videos/KLStory.mp4).
-
-Two design docs drive it:
-
-* [`THEORY.md`](THEORY.md) — the maths, bottom-up (PAC-Bayes, KL, the bound).
-* [`STORYBOARD.md`](STORYBOARD.md) — the shot-by-shot animation plan.
 
 ## Render
 
@@ -69,17 +80,18 @@ Needs [`pixi`](https://pixi.sh) and a system LaTeX with `standalone.cls`
 
 ```bash
 pixi install
-pixi run render        # KLStory, 480p15 → media/videos/kl_3d/480p15/
-pixi run render-hq     # KLStory, 1080p60
+pixi run render        # KLStory, 480p15  → media/videos/kl_3d/480p15/
+pixi run render-hq     # KLStory, 1080p60 → media/videos/kl_3d/1080p60/
 pixi run smoke         # single-frame smoke test of KLStory (fast, reliable)
 ```
 
 > On the NFS-backed pixi env, full video renders can intermittently die with
-> `mmap`/`MemoryError`. `pixi run smoke` (a single `manim -s` frame) exercises
-> all of `construct()` and is the reliable way to validate a scene; retry a
-> full render if it fails.
+> `mmap`/`MemoryError`, and the per-animation cache can occasionally serve a
+> stale segment. `pixi run smoke` (a single `manim -s` frame) exercises all of
+> `construct()` and is the reliable way to validate a scene; for a clean full
+> render, retry — adding `--disable_caching` avoids stale cached segments.
 
-The previews in [`videos/`](videos/) are the committed 480p15 outputs.
+The previews in [`videos/`](videos/) are the committed 1080p60 outputs.
 
 ## License
 
